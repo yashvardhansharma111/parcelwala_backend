@@ -1,0 +1,129 @@
+[
+  {
+    "city": "ratlam",
+    "address": "72, Station Rd, Bapu Nagar, Ratlam, Madhya Pradesh 457001, India",
+    "addressType": "static_recommendation",
+    "title": "Ratlam Junction Railway Station",
+    "latitude": 23.340302,
+    "longitude": 75.050953,
+    "placeId": "ChIJibntA7T_YzkRvQZsQQccT_U",
+    "placeIdProvider": "Google"
+  },
+  {
+    "city": "ratlam",
+    "address": "PWM7+3RW, Gandhi Nagar, Ratlam, Indore, Madhya Pradesh 452016, India",
+    "addressType": "static_recommendation",
+    "title": "Ratlam Railway Station",
+    "latitude": 23.3362757,
+    "longitude": 75.0400205,
+    "placeId": "ChIJN6furdz_YzkRPY2KAMEpskg",
+    "placeIdProvider": "Google"
+  },
+  {
+    "city": "ratlam",
+    "address": "82MP+C82, maharana pratap chauk, Palsoda, rammandir, Laxman Pura, Ratlam, Madhya Pradesh 457001, India",
+    "addressType": "static_recommendation",
+    "title": "Chetak Bridge",
+    "latitude": 23.3335117,
+    "longitude": 75.03575357,
+    "placeId": "ChIJSTUciZf-YzkRen2A7Y39Lnc",
+    "placeIdProvider": "Google"
+  },
+  {
+    "city": "ratlam",
+    "address": "Do Batti Chowk, Shastri Nagar, Ratlam, Madhya Pradesh 457001",
+    "addressType": "static_recommendation",
+    "title": "Do Batti Chowk",
+    "latitude": 23.3334104,
+    "longitude": 75.04522315,
+    "placeId": "ChIJ2w_Sx6T-YzkRIDhTlFH8GOw",
+    "placeIdProvider": "Google"
+  },
+  {
+    "city": "ratlam",
+    "address": "Alkapuri, Ratlam, Madhya Pradesh 457001, India",
+    "addressType": "static_recommendation",
+    "title": "Alkapuri",
+    "latitude": 23.34927229,
+    "longitude": 75.03643769,
+    "placeId": "ChIJp5Fxq5T-YzkRYkBrRsuGsl8",
+    "placeIdProvider": "Google"
+  },
+  {
+    "city": "ratlam",
+    "address": "Ram Mandir, SH 10, Jawahar Nagar, Ratlam, Madhya Pradesh 457001, India",
+    "addressType": "static_recommendation",
+    "title": "Ram Mandir",
+    "latitude": 23.338281,
+    "longitude": 75.033419,
+    "placeId": "ChIJw8oemZb-YzkRNwQ6DBpAxCk",
+    "placeIdProvider": "Google"
+  },
+  {
+    "city": "ratlam",
+    "address": "150/61, 62 Veeriyakhedi, Ayodya Basti, Khedi, Ratlam, Madhya Pradesh 457001, India",
+    "addressType": "static_recommendation",
+    "title": "Ratlam Public School",
+    "latitude": 23.33343017,
+    "longitude": 75.01961327,
+    "placeId": "ChIJOQPA54j-YzkRQdokBBZx9QQ",
+    "placeIdProvider": "Google"
+  },
+  {
+    "city": "ratlam",
+    "address": "82GX+Q56, Anand Colony, Shastri Nagar, Ratlam, Madhya Pradesh 457001, India",
+    "addressType": "static_recommendation",
+    "title": "Kalika Mata Mandir",
+    "latitude": 23.32698492,
+    "longitude": 75.0478581,
+    "placeId": "ChIJw-9RR6b-YzkRTNF2ngEzdco",
+    "placeIdProvider": "Google"
+  },
+  {
+    "city": "ratlam",
+    "address": "67, TIT Rd, Palsoda, Shastri Nagar, Ratlam, Madhya Pradesh 457001, India",
+    "addressType": "static_recommendation",
+    "title": "Ratlam bus stand",
+    "latitude": 23.3305391,
+    "longitude": 75.05343067,
+    "placeId": "ChIJ76_rnd7_YzkRcd3gR5OnUsA",
+    "placeIdProvider": "Google"
+  },
+  {
+    "city": "ratlam",
+    "address": "Kasturba Nagar, Ratlam, Madhya Pradesh 457001, India",
+    "addressType": "static_recommendation",
+    "title": "Kasturba Nagar",
+    "latitude": 23.325,
+    "longitude": 75.042,
+    "placeIdProvider": "Google"
+  },
+  {
+    "city": "ratlam",
+    "address": "Bypaas Road, Near Jaora Road Road, 83V6+G6X, Jaora Rd, Bapu Nagar, Ratlam, Madhya Pradesh 457001, India",
+    "addressType": "static_recommendation",
+    "title": "Bypass Road - Jaora Road",
+    "latitude": 23.345,
+    "longitude": 75.055,
+    "placeIdProvider": "Google"
+  },
+  {
+    "city": "ratlam",
+    "address": "Bus Stand, 83, Mhow Rd, Mhow Road Railway Colony, Ratlam, Madhya Pradesh 457001, India",
+    "addressType": "static_recommendation",
+    "title": "Bus Stand - Mhow Road",
+    "latitude": 23.335,
+    "longitude": 75.038,
+    "placeIdProvider": "Google"
+  },
+  {
+    "city": "ratlam",
+    "address": "Deendayal Nagar, Tata Nagar, Ratlam, Madhya Pradesh 457001, India",
+    "addressType": "static_recommendation",
+    "title": "Deendayal Nagar - Tata Nagar",
+    "latitude": 23.328,
+    "longitude": 75.045,
+    "placeIdProvider": "Google"
+  }
+]
+
