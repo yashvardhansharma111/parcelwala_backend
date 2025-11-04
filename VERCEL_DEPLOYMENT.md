@@ -23,7 +23,7 @@ This guide explains how to deploy the Parcel Booking Backend to Vercel.
 3. **Configure Project**
    - **Root Directory**: Set to `backend` (if your backend is in a subdirectory)
    - **Framework Preset**: Select "Other"
-   - **Build Command**: `npm run build` or `npm run vercel-build`
+   - **Build Command**: Leave empty (Vercel compiles TypeScript automatically)
    - **Output Directory**: Leave empty (Vercel handles this)
    - **Install Command**: `npm install`
 
