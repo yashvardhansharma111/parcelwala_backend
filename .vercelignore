@@ -1,0 +1,10 @@
+node_modules
+dist
+*.md
+.env
+.env.local
+.env.*.local
+tsconfig.json
+.vscode
+.idea
+

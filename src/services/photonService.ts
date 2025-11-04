@@ -67,9 +67,27 @@ interface StaticAddress {
  */
 const loadStaticAddresses = (): StaticAddress[] => {
   try {
-    const filePath = path.join(__dirname, "../../data/ratlam-addresses.json");
-    const fileContent = fs.readFileSync(filePath, "utf-8");
-    return JSON.parse(fileContent) as StaticAddress[];
+    // Try multiple paths for different deployment environments
+    const possiblePaths = [
+      path.join(__dirname, "../../data/ratlam-addresses.json"), // Local development
+      path.join(process.cwd(), "data/ratlam-addresses.json"), // Vercel/serverless
+      path.join(process.cwd(), "backend/data/ratlam-addresses.json"), // Monorepo
+      path.join(__dirname, "../data/ratlam-addresses.json"), // Compiled dist
+    ];
+
+    for (const filePath of possiblePaths) {
+      try {
+        if (fs.existsSync(filePath)) {
+          const fileContent = fs.readFileSync(filePath, "utf-8");
+          return JSON.parse(fileContent) as StaticAddress[];
+        }
+      } catch (err) {
+        // Continue to next path
+      }
+    }
+
+    console.warn("Static addresses file not found. Using Photon API only.");
+    return [];
   } catch (error: any) {
     console.error("Error loading static addresses:", error.message);
     return [];
