@@ -261,10 +261,32 @@ export const updateBookingStatus = async (
   status: BookingStatus
 ): Promise<void> => {
   try {
+    // Get current booking to track status change
+    const bookingDoc = await db.collection("bookings").doc(bookingId).get();
+    if (!bookingDoc.exists) {
+      throw createError("Booking not found", 404);
+    }
+
+    const bookingData = bookingDoc.data()!;
+    const oldStatus = bookingData.status as BookingStatus;
+
+    // Update status
     await db.collection("bookings").doc(bookingId).update({
       status,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
+
+    // Send notification if status changed
+    if (oldStatus !== status) {
+      const { sendBookingStatusNotification } = await import("./notificationService");
+      await sendBookingStatusNotification(
+        bookingData.userId,
+        bookingId,
+        bookingData.trackingNumber,
+        oldStatus,
+        status
+      );
+    }
   } catch (error: any) {
     console.error("Error updating booking status:", error);
     throw createError("Failed to update booking status", 500);
@@ -297,6 +319,16 @@ export const updatePaymentStatus = async (
     }
 
     await db.collection("bookings").doc(bookingId).update(updateData);
+
+    // Send notification if payment status changed
+    if (bookingData.paymentStatus !== paymentStatus) {
+      const { sendPaymentStatusNotification } = await import("./notificationService");
+      await sendPaymentStatusNotification(
+        bookingData.userId,
+        bookingId,
+        paymentStatus
+      );
+    }
   } catch (error: any) {
     console.error("Error updating payment status:", error);
     throw createError("Failed to update payment status", 500);

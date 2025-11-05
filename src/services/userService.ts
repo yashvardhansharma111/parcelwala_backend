@@ -11,6 +11,7 @@ import { createError } from "../utils/errorHandler";
 export interface User {
   id: string;
   phoneNumber: string;
+  name?: string; // User's name
   role: "admin" | "customer";
   refreshToken?: string;
   createdAt: Date;
@@ -28,7 +29,8 @@ export const determineRole = (phoneNumber: string): "admin" | "customer" => {
  * Create or get user in Firestore
  */
 export const createOrGetUser = async (
-  phoneNumber: string
+  phoneNumber: string,
+  name?: string
 ): Promise<User> => {
   try {
     // Determine role
@@ -49,23 +51,34 @@ export const createOrGetUser = async (
       userData = {
         id: doc.id,
         phoneNumber,
+        name: name || data.name, // Update name if provided, otherwise keep existing
         role: data.role || role,
         refreshToken: data.refreshToken,
         createdAt: data.createdAt?.toDate() || now,
         updatedAt: now,
       };
 
-      // Update user document
-      await doc.ref.update({
+      // Update user document (only update name if provided)
+      const updateData: any = {
         role: userData.role,
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
+      };
+      if (name) {
+        updateData.name = name;
+      }
+      await doc.ref.update(updateData);
     } else {
       // User doesn't exist, create new
+      // Name is required for new users
+      if (!name || name.trim().length === 0) {
+        throw createError("Name is required for new users", 400);
+      }
+
       const newUserRef = usersRef.doc();
       userData = {
         id: newUserRef.id,
         phoneNumber,
+        name: name.trim(),
         role,
         createdAt: now,
         updatedAt: now,
@@ -73,6 +86,7 @@ export const createOrGetUser = async (
 
       await newUserRef.set({
         phoneNumber: userData.phoneNumber,
+        name: userData.name,
         role: userData.role,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -120,6 +134,35 @@ export const removeRefreshToken = async (userId: string): Promise<void> => {
 };
 
 /**
+ * Get user by phone number
+ */
+export const getUserByPhoneNumber = async (phoneNumber: string): Promise<User | null> => {
+  try {
+    const usersRef = db.collection("users");
+    const snapshot = await usersRef.where("phoneNumber", "==", phoneNumber).limit(1).get();
+
+    if (snapshot.empty) {
+      return null;
+    }
+
+    const doc = snapshot.docs[0];
+    const data = doc.data();
+    return {
+      id: doc.id,
+      phoneNumber: data.phoneNumber,
+      name: data.name,
+      role: data.role,
+      refreshToken: data.refreshToken,
+      createdAt: data.createdAt?.toDate() || new Date(),
+      updatedAt: data.updatedAt?.toDate() || new Date(),
+    };
+  } catch (error: any) {
+    console.error("Error getting user by phone number:", error);
+    throw createError("Failed to get user", 500);
+  }
+};
+
+/**
  * Get user by ID
  */
 export const getUserById = async (userId: string): Promise<User | null> => {
@@ -134,6 +177,7 @@ export const getUserById = async (userId: string): Promise<User | null> => {
     return {
       id: userDoc.id,
       phoneNumber: data.phoneNumber,
+      name: data.name,
       role: data.role,
       refreshToken: data.refreshToken,
       createdAt: data.createdAt?.toDate() || new Date(),

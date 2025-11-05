@@ -15,6 +15,7 @@ import {
   updateRefreshToken,
   removeRefreshToken,
   getUserById,
+  getUserByPhoneNumber,
 } from "../services/userService";
 import { createError } from "../utils/errorHandler";
 
@@ -63,7 +64,7 @@ export const verifyOtp = async (
   next: NextFunction
 ) => {
   try {
-    const { phoneNumber, otp } = req.body;
+    const { phoneNumber, otp, name } = req.body;
 
     // Validate inputs
     if (!phoneNumber || typeof phoneNumber !== "string") {
@@ -81,8 +82,20 @@ export const verifyOtp = async (
       throw createError("Invalid or expired OTP", 401);
     }
 
-    // Create or get user
-    const user = await createOrGetUser(phoneNumber);
+    // Check if user exists
+    const existingUser = await getUserByPhoneNumber(phoneNumber);
+    
+    // If user doesn't exist and name is not provided, return requiresName flag
+    if (!existingUser && (!name || typeof name !== "string" || name.trim().length === 0)) {
+      return res.status(200).json({
+        success: true,
+        requiresName: true,
+        message: "Name is required for new users",
+      });
+    }
+
+    // Create or get user (name is optional for existing users, required for new)
+    const user = await createOrGetUser(phoneNumber, name?.trim());
 
     // Generate tokens
     const tokenPayload = {
@@ -104,6 +117,7 @@ export const verifyOtp = async (
         user: {
           id: user.id,
           phoneNumber: user.phoneNumber,
+          name: user.name,
           role: user.role,
           createdAt: user.createdAt,
           updatedAt: user.updatedAt,

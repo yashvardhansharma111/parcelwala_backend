@@ -30,7 +30,7 @@ export const ENV = {
 
   // Paygic Payment Gateway
   PAYGIC_MID: process.env.PAYGIC_MID || "",
-  PAYGIC_TOKEN: process.env.PAYGIC_TOKEN || "",
+  PAYGIC_TOKEN: process.env.PAYGIC_Token || "",
   PAYGIC_BASE_URL: process.env.PAYGIC_BASE_URL || "https://server.paygic.in/api/v2",
   PAYGIC_SUCCESS_URL: process.env.PAYGIC_SUCCESS_URL || "",
   PAYGIC_FAILED_URL: process.env.PAYGIC_FAILED_URL || "",

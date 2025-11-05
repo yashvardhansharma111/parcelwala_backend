@@ -61,21 +61,13 @@ const normalizePhoneNumber = (phoneNumber: string): string => {
 };
 
 /**
- * Send OTP via Renflair SMS API
+ * Send OTP via Renflair SMS API (Production Mode)
  * API Endpoint: https://sms.renflair.in/V1.php
  * Format: https://sms.renflair.in/V1.php?API={API_KEY}&PHONE={PHONE}&OTP={OTP}
  * Message format: "{OTP} is your verification code for {domain.com}"
  */
 export const sendOTP = async (phoneNumber: string): Promise<void> => {
   try {
-    // Validate API key
-    if (!ENV.RENFLAIR_API_KEY || ENV.RENFLAIR_API_KEY.trim() === "") {
-      throw createError(
-        "Renflair API key not configured. Please set RENFLAIR_API_KEY in your .env file",
-        500
-      );
-    }
-
     // Generate 6-digit OTP
     const otp = generateOTP();
 
@@ -87,6 +79,15 @@ export const sendOTP = async (phoneNumber: string): Promise<void> => {
 
     // Extract 10-digit phone number (without country code)
     const phone = extractPhoneNumber(phoneNumber);
+
+    // Send real SMS via Renflair (Production Mode)
+    // Validate API key
+    if (!ENV.RENFLAIR_API_KEY || ENV.RENFLAIR_API_KEY.trim() === "") {
+      throw createError(
+        "Renflair API key not configured. Please set RENFLAIR_API_KEY in your .env file",
+        500
+      );
+    }
 
     // Renflair API endpoint for OTP
     const apiUrl = "https://sms.renflair.in/V1.php";

@@ -79,55 +79,54 @@ export const calculateBookingFare = async (
   next: NextFunction
 ): Promise<void> => {
   try {
-    const { pickup, drop, weight } = req.body;
-
-    // Validate pickup coordinates
-    if (
-      !pickup ||
-      typeof pickup.lat !== "number" ||
-      typeof pickup.lon !== "number"
-    ) {
-      throw createError("Pickup coordinates (lat, lon) are required", 400);
-    }
-
-    // Validate drop coordinates
-    if (
-      !drop ||
-      typeof drop.lat !== "number" ||
-      typeof drop.lon !== "number"
-    ) {
-      throw createError("Drop coordinates (lat, lon) are required", 400);
-    }
+    const { pickup, drop, weight, pickupPincode, dropPincode } = req.body;
 
     // Validate weight
     if (typeof weight !== "number" || weight <= 0) {
       throw createError("Weight must be a positive number", 400);
     }
 
-    // Validate coordinate ranges
-    if (
-      pickup.lat < -90 ||
-      pickup.lat > 90 ||
-      pickup.lon < -180 ||
-      pickup.lon > 180
-    ) {
-      throw createError("Invalid pickup coordinates", 400);
-    }
+    let distanceInKm: number;
 
-    if (
-      drop.lat < -90 ||
-      drop.lat > 90 ||
-      drop.lon < -180 ||
-      drop.lon > 180
-    ) {
-      throw createError("Invalid drop coordinates", 400);
-    }
+    // Check if pincodes are provided and same - use 0-40km range (use 20km as average)
+    if (pickupPincode && dropPincode && pickupPincode === dropPincode && pickupPincode.length === 6) {
+      distanceInKm = 20; // Use middle of 0-40km range for same pincode
+    } else if (pickup && drop && typeof pickup.lat === "number" && typeof pickup.lon === "number" && typeof drop.lat === "number" && typeof drop.lon === "number") {
+      // Validate coordinate ranges
+      if (
+        pickup.lat < -90 ||
+        pickup.lat > 90 ||
+        pickup.lon < -180 ||
+        pickup.lon > 180
+      ) {
+        throw createError("Invalid pickup coordinates", 400);
+      }
 
-    // Calculate distance
-    const distanceInKm = calculateDistance(
-      { lat: pickup.lat, lon: pickup.lon },
-      { lat: drop.lat, lon: drop.lon }
-    );
+      if (
+        drop.lat < -90 ||
+        drop.lat > 90 ||
+        drop.lon < -180 ||
+        drop.lon > 180
+      ) {
+        throw createError("Invalid drop coordinates", 400);
+      }
+
+      // Calculate distance from coordinates
+      distanceInKm = calculateDistance(
+        { lat: pickup.lat, lon: pickup.lon },
+        { lat: drop.lat, lon: drop.lon }
+      );
+    } else {
+      // If no coordinates and different pincodes, try to calculate from pincode
+      // For now, use a default distance if pincodes are different
+      // TODO: Implement pincode to coordinates lookup for accurate distance
+      if (pickupPincode && dropPincode && pickupPincode !== dropPincode) {
+        // Different pincodes - use a default distance (could be improved with pincode lookup)
+        distanceInKm = 50; // Default distance for different pincodes
+      } else {
+        throw createError("Either coordinates or pincodes are required", 400);
+      }
+    }
 
     // Calculate fare
     const fareCalculation = await calculateFare(distanceInKm, weight);

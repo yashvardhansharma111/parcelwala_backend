@@ -19,6 +19,7 @@ import adminRoutes from "./routes/adminRoutes";
 import bookingRoutes from "./routes/bookingRoutes";
 import mapRoutes from "./routes/mapRoutes";
 import paymentRoutes from "./routes/paymentRoutes";
+import analyticsRoutes from "./routes/analyticsRoutes";
 
 const app: Express = express();
 
@@ -55,6 +56,7 @@ app.use("/admin", adminRoutes);
 app.use("/bookings", bookingRoutes);
 app.use("/map", mapRoutes);
 app.use("/api/payments", paymentRoutes);
+app.use("/analytics", analyticsRoutes);
 
 // 404 fallback
 app.use((req, res) => {

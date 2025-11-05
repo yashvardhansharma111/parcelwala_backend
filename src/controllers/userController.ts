@@ -5,6 +5,7 @@
 
 import { Request, Response, NextFunction } from "express";
 import { getUserById } from "../services/userService";
+import { saveFCMToken } from "../services/notificationService";
 import { createError } from "../utils/errorHandler";
 
 /**
@@ -35,6 +36,37 @@ export const getProfile = async (
       data: {
         user: userData,
       },
+    });
+  } catch (error: any) {
+    next(error);
+  }
+};
+
+/**
+ * Save FCM token for push notifications
+ * POST /user/fcm-token
+ */
+export const saveFCMTokenEndpoint = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    if (!req.user) {
+      throw createError("User not authenticated", 401);
+    }
+
+    const { token } = req.body;
+
+    if (!token || typeof token !== "string") {
+      throw createError("FCM token is required", 400);
+    }
+
+    await saveFCMToken(req.user.uid, token);
+
+    res.status(200).json({
+      success: true,
+      message: "FCM token saved successfully",
     });
   } catch (error: any) {
     next(error);
