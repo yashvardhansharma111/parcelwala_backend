@@ -83,9 +83,20 @@ export const createPaymentPage = async (
 ): Promise<CreatePaymentPageResponse> => {
   try {
     // Check if Paygic credentials are configured
-    if (!ENV.PAYGIC_MID || ENV.PAYGIC_MID.trim() === "" || !ENV.PAYGIC_TOKEN || ENV.PAYGIC_TOKEN.trim() === "") {
+    const hasMID = ENV.PAYGIC_MID && ENV.PAYGIC_MID.trim() !== "";
+    const hasToken = ENV.PAYGIC_TOKEN && ENV.PAYGIC_TOKEN.trim() !== "";
+    
+    if (!hasMID || !hasToken) {
+      // Log detailed error for debugging
+      console.error("Paygic Configuration Error:", {
+        PAYGIC_MID: hasMID ? "✓ Set" : "✗ Missing or empty",
+        PAYGIC_TOKEN: hasToken ? "✓ Set" : "✗ Missing or empty",
+        envKeys: Object.keys(process.env).filter(key => key.includes("PAYGIC")),
+        nodeEnv: ENV.NODE_ENV,
+      });
+      
       throw createError(
-        "Paygic credentials not configured. Please set PAYGIC_MID and PAYGIC_TOKEN in your .env file",
+        `Paygic credentials not configured. Missing: ${!hasMID ? "PAYGIC_MID" : ""}${!hasMID && !hasToken ? " and " : ""}${!hasToken ? "PAYGIC_TOKEN" : ""}. Please set these in Vercel Environment Variables (Settings → Environment Variables).`,
         500
       );
     }
@@ -155,9 +166,17 @@ export const checkPaymentStatus = async (
 ): Promise<CheckPaymentStatusResponse> => {
   try {
     // Check if Paygic credentials are configured
-    if (!ENV.PAYGIC_MID || ENV.PAYGIC_MID.trim() === "" || !ENV.PAYGIC_TOKEN || ENV.PAYGIC_TOKEN.trim() === "") {
+    const hasMID = ENV.PAYGIC_MID && ENV.PAYGIC_MID.trim() !== "";
+    const hasToken = ENV.PAYGIC_TOKEN && ENV.PAYGIC_TOKEN.trim() !== "";
+    
+    if (!hasMID || !hasToken) {
+      console.error("Paygic Configuration Error (checkPaymentStatus):", {
+        PAYGIC_MID: hasMID ? "✓ Set" : "✗ Missing or empty",
+        PAYGIC_TOKEN: hasToken ? "✓ Set" : "✗ Missing or empty",
+      });
+      
       throw createError(
-        "Paygic credentials not configured. Please set PAYGIC_MID and PAYGIC_TOKEN in your .env file",
+        `Paygic credentials not configured. Missing: ${!hasMID ? "PAYGIC_MID" : ""}${!hasMID && !hasToken ? " and " : ""}${!hasToken ? "PAYGIC_TOKEN" : ""}. Please set these in Vercel Environment Variables.`,
         500
       );
     }

@@ -69,6 +69,7 @@ const sendNotification = async (
         notification: {
           channelId: "booking_updates",
           sound: "default",
+          clickAction: "FLUTTER_NOTIFICATION_CLICK",
         },
       },
       apns: {
@@ -76,15 +77,28 @@ const sendNotification = async (
           aps: {
             sound: "default",
             badge: 1,
+            alert: {
+              title: notification.title,
+              body: notification.body,
+            },
           },
         },
       },
     };
 
-    await admin.messaging().send(message);
-    console.log("Notification sent successfully");
+    const response = await admin.messaging().send(message);
+    console.log("Notification sent successfully:", response);
   } catch (error: any) {
     console.error("Error sending notification:", error);
+    
+    // Handle invalid token errors
+    if (error.code === "messaging/invalid-registration-token" || 
+        error.code === "messaging/registration-token-not-registered") {
+      console.log("Invalid token, removing from database");
+      // Optionally remove invalid token from database
+      // This would require userId, so we'll handle it at a higher level
+    }
+    
     // Don't throw error - notification failure shouldn't break the flow
   }
 };
@@ -107,11 +121,11 @@ export const sendBookingStatusNotification = async (
     }
 
     const statusMessages: { [key in BookingStatus]?: string } = {
-      "In Transit": "Your parcel is now in transit!",
+      "Created": "Your booking has been confirmed!",
+      "Picked": "Your parcel has been picked up!",
+      "Shipped": "Your parcel is now in transit!",
       "Delivered": "Your parcel has been delivered!",
-      "Cancelled": "Your booking has been cancelled.",
-      "Pending": "Your booking is being processed.",
-      "Failed": "Your delivery has failed. Please contact support.",
+      "PendingPayment": "Waiting for payment confirmation.",
     };
 
     const title = "Booking Status Update";
@@ -147,6 +161,7 @@ export const sendPaymentStatusNotification = async (
   try {
     const token = await getUserFCMToken(userId);
     if (!token) {
+      console.log("No FCM token found for user:", userId);
       return;
     }
 
@@ -167,6 +182,111 @@ export const sendPaymentStatusNotification = async (
     });
   } catch (error: any) {
     console.error("Error sending payment notification:", error);
+  }
+};
+
+/**
+ * Send notification to specific user
+ */
+export const sendNotificationToUser = async (
+  userId: string,
+  notification: NotificationData
+): Promise<void> => {
+  try {
+    const token = await getUserFCMToken(userId);
+    if (!token) {
+      throw createError("User does not have FCM token registered", 404);
+    }
+
+    await sendNotification(token, notification);
+  } catch (error: any) {
+    console.error("Error sending notification to user:", error);
+    throw error;
+  }
+};
+
+/**
+ * Broadcast notification to all users with FCM tokens
+ */
+export const broadcastNotification = async (
+  notification: NotificationData
+): Promise<{ sent: number; failed: number; total: number }> => {
+  try {
+    // Get all users with FCM tokens
+    const usersSnapshot = await db
+      .collection("users")
+      .where("fcmToken", "!=", null)
+      .get();
+
+    if (usersSnapshot.empty) {
+      return { sent: 0, failed: 0, total: 0 };
+    }
+
+    const tokens: string[] = [];
+    usersSnapshot.docs.forEach((doc) => {
+      const data = doc.data();
+      if (data.fcmToken) {
+        tokens.push(data.fcmToken);
+      }
+    });
+
+    if (tokens.length === 0) {
+      return { sent: 0, failed: 0, total: 0 };
+    }
+
+    // Send notifications in batches (FCM allows up to 500 tokens per batch)
+    const batchSize = 500;
+    let sent = 0;
+    let failed = 0;
+
+    for (let i = 0; i < tokens.length; i += batchSize) {
+      const batch = tokens.slice(i, i + batchSize);
+      
+      try {
+        // Use multicast for batch sending
+        const message: admin.messaging.MulticastMessage = {
+          tokens: batch,
+          notification: {
+            title: notification.title,
+            body: notification.body,
+          },
+          data: notification.data || {},
+          android: {
+            priority: "high",
+            notification: {
+              channelId: "booking_updates",
+              sound: "default",
+            },
+          },
+          apns: {
+            payload: {
+              aps: {
+                sound: "default",
+                badge: 1,
+              },
+            },
+          },
+        };
+
+        const response = await admin.messaging().sendEachForMulticast(message);
+        sent += response.successCount;
+        failed += response.failureCount;
+
+        console.log(`Batch ${Math.floor(i / batchSize) + 1}: ${response.successCount} sent, ${response.failureCount} failed`);
+      } catch (error: any) {
+        console.error("Error sending batch notification:", error);
+        failed += batch.length;
+      }
+    }
+
+    return {
+      sent,
+      failed,
+      total: tokens.length,
+    };
+  } catch (error: any) {
+    console.error("Error broadcasting notification:", error);
+    throw createError("Failed to broadcast notification", 500);
   }
 };
 

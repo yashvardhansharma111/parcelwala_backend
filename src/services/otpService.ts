@@ -61,7 +61,11 @@ const normalizePhoneNumber = (phoneNumber: string): string => {
 };
 
 /**
- * Send OTP via Renflair SMS API (Production Mode)
+ * Send OTP via Renflair SMS API
+ * 
+ * Development Mode: Logs OTP to server console (no real SMS sent)
+ * Production Mode: Sends real SMS via Renflair API
+ * 
  * API Endpoint: https://sms.renflair.in/V1.php
  * Format: https://sms.renflair.in/V1.php?API={API_KEY}&PHONE={PHONE}&OTP={OTP}
  * Message format: "{OTP} is your verification code for {domain.com}"
@@ -80,7 +84,23 @@ export const sendOTP = async (phoneNumber: string): Promise<void> => {
     // Extract 10-digit phone number (without country code)
     const phone = extractPhoneNumber(phoneNumber);
 
-    // Send real SMS via Renflair (Production Mode)
+    // Check if we're in development mode
+    const isDevelopment = ENV.NODE_ENV !== "production";
+
+    if (isDevelopment) {
+      // Development Mode: Log OTP instead of sending real SMS
+      console.log("=".repeat(60));
+      console.log("🔧 DEVELOPMENT MODE - OTP NOT SENT VIA SMS");
+      console.log("=".repeat(60));
+      console.log(`📱 Phone Number: ${normalizedPhone}`);
+      console.log(`🔐 OTP Code: ${otp}`);
+      console.log(`⏰ Valid for: 5 minutes`);
+      console.log("=".repeat(60));
+      console.log(`✅ OTP generated and stored in cache with key: ${normalizedPhone}`);
+      return;
+    }
+
+    // Production Mode: Send real SMS via Renflair
     // Validate API key
     if (!ENV.RENFLAIR_API_KEY || ENV.RENFLAIR_API_KEY.trim() === "") {
       throw createError(
@@ -101,7 +121,7 @@ export const sendOTP = async (phoneNumber: string): Promise<void> => {
 
     const fullUrl = `${apiUrl}?${params.toString()}`;
 
-    console.log(`Sending OTP to ${phone} via Renflair API...`);
+    console.log(`📤 Sending OTP to ${phone} via Renflair API...`);
     
     // Send SMS via Renflair API (GET request)
     const response = await axios.get(fullUrl, {
@@ -130,7 +150,7 @@ export const sendOTP = async (phoneNumber: string): Promise<void> => {
       }
     }
 
-    console.log(`✅ OTP sent successfully to ${phone}: ${otp}`);
+    console.log(`✅ OTP sent successfully to ${phone} via SMS`);
     console.log(`📝 OTP stored in cache with key: ${normalizedPhone}`);
   } catch (error: any) {
     console.error("Error sending OTP:", error);

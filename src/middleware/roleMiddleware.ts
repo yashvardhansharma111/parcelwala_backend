@@ -8,9 +8,9 @@ import { createError } from "../utils/errorHandler";
 import { AppCreds } from "../config/creds";
 
 /**
- * Middleware to restrict access to admin only
+ * Middleware to restrict access to super admin only (from .env)
  */
-export const requireAdmin = (
+export const requireSuperAdmin = (
   req: Request,
   res: Response,
   next: NextFunction
@@ -22,11 +22,29 @@ export const requireAdmin = (
     });
   }
 
-  // Check if user is admin
-  if (req.user.role !== "admin" || req.user.phoneNumber !== AppCreds.admin.phoneNumber) {
+  // Hardcoded super admin phone number
+  const SUPER_ADMIN_PHONE = "8462044151";
+  
+  // Normalize phone numbers for comparison
+  const normalizePhone = (phone: string): string => {
+    if (!phone) return "";
+    // Remove all spaces, +, -, and country code
+    let normalized = phone.trim().replace(/\s+/g, "").replace(/[+\-]/g, "");
+    // Remove +91 or 91 prefix if present
+    if (normalized.startsWith("91") && normalized.length === 12) {
+      normalized = normalized.substring(2);
+    }
+    return normalized;
+  };
+  
+  const normalizedUserPhone = normalizePhone(req.user.phoneNumber);
+  const normalizedSuperAdminPhone = normalizePhone(SUPER_ADMIN_PHONE);
+  
+  // Check if user is super admin
+  if (req.user.role !== "admin" || normalizedUserPhone !== normalizedSuperAdminPhone) {
     return res.status(403).json({
       success: false,
-      error: { message: "Admin access required" },
+      error: { message: "Super admin access required" },
     });
   }
 
@@ -54,13 +72,10 @@ export const requireRole = (...roles: ("admin" | "customer")[]) => {
       });
     }
 
-    // Additional check for admin: verify phone number matches
-    if (req.user.role === "admin" && req.user.phoneNumber !== AppCreds.admin.phoneNumber) {
-      return res.status(403).json({
-        success: false,
-        error: { message: "Admin access required" },
-      });
-    }
+    // For admin role: allow both super admin (from .env) and co-admins
+    // Super admin has phone number matching ADMIN_PHONE_NUMBER
+    // Co-admins have role "admin" but different phone number
+    // Both can access admin routes, but only super admin can manage co-admins
 
     next();
   };

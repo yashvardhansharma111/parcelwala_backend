@@ -7,6 +7,118 @@ import * as admin from "firebase-admin";
 import { db } from "../config/firebase";
 import { createError } from "../utils/errorHandler";
 
+/**
+ * Temporary booking data interface (for online payments)
+ */
+interface TempBookingData {
+  userId: string;
+  pickup: any;
+  drop: any;
+  parcelDetails: any;
+  fare: number;
+  paymentMethod: "online";
+  couponCode?: string;
+  merchantReferenceId: string;
+  bookingId?: string; // Set after booking is created
+  createdAt: Date;
+}
+
+/**
+ * Store temporary booking data (for online payments - created after payment success)
+ */
+export const storeTempBookingData = async (
+  userId: string,
+  bookingData: {
+    pickup: any;
+    drop: any;
+    parcelDetails: any;
+    fare: number;
+    couponCode?: string;
+  },
+  merchantReferenceId: string
+): Promise<string> => {
+  try {
+    // Extract temp ID from merchantReferenceId (format: temp-userId-timestamp-timestamp)
+    const parts = merchantReferenceId.split("-");
+    const tempId = `temp-${parts[1]}-${parts[2]}`;
+    
+    const tempData: TempBookingData = {
+      userId,
+      pickup: bookingData.pickup,
+      drop: bookingData.drop,
+      parcelDetails: bookingData.parcelDetails,
+      fare: bookingData.fare,
+      paymentMethod: "online",
+      couponCode: bookingData.couponCode,
+      merchantReferenceId,
+      createdAt: new Date(),
+    };
+
+    // Store with TTL of 1 hour (booking should be created within payment window)
+    await db.collection("temp_bookings").doc(tempId).set({
+      ...tempData,
+      expiresAt: admin.firestore.Timestamp.fromDate(new Date(Date.now() + 60 * 60 * 1000)),
+    });
+
+    return tempId;
+  } catch (error: any) {
+    console.error("Error storing temp booking data:", error);
+    throw createError("Failed to store temporary booking data", 500);
+  }
+};
+
+/**
+ * Get temporary booking data
+ */
+export const getTempBookingData = async (tempId: string): Promise<TempBookingData | null> => {
+  try {
+    const doc = await db.collection("temp_bookings").doc(tempId).get();
+    if (!doc.exists) {
+      return null;
+    }
+    const data = doc.data()!;
+    return {
+      userId: data.userId,
+      pickup: data.pickup,
+      drop: data.drop,
+      parcelDetails: data.parcelDetails,
+      fare: data.fare,
+      paymentMethod: data.paymentMethod,
+      couponCode: data.couponCode,
+      merchantReferenceId: data.merchantReferenceId,
+      bookingId: data.bookingId,
+      createdAt: data.createdAt?.toDate() || new Date(),
+    };
+  } catch (error: any) {
+    console.error("Error getting temp booking data:", error);
+    return null;
+  }
+};
+
+/**
+ * Update temp booking data with actual booking ID
+ */
+export const updateTempBookingData = async (tempId: string, bookingId: string): Promise<void> => {
+  try {
+    await db.collection("temp_bookings").doc(tempId).update({
+      bookingId,
+    });
+  } catch (error: any) {
+    console.error("Error updating temp booking data:", error);
+  }
+};
+
+/**
+ * Delete temporary booking data
+ */
+export const deleteTempBookingData = async (tempId: string): Promise<void> => {
+  try {
+    await db.collection("temp_bookings").doc(tempId).delete();
+  } catch (error: any) {
+    console.error("Error deleting temp booking data:", error);
+  }
+};
+
 export interface Address {
   name: string;
   phone: string;
@@ -31,7 +143,7 @@ export interface ParcelDetails {
   value?: number;
 }
 
-export type BookingStatus = "PendingPayment" | "Created" | "Picked" | "Shipped" | "Delivered";
+export type BookingStatus = "PendingPayment" | "Created" | "Picked" | "Shipped" | "Delivered" | "Returned";
 export type PaymentStatus = "pending" | "paid" | "failed" | "refunded";
 export type PaymentMethod = "cod" | "online"; // Cash on Delivery or Online Payment
 
@@ -71,6 +183,7 @@ export const createBooking = async (
     parcelDetails: ParcelDetails;
     fare?: number;
     paymentMethod?: PaymentMethod;
+    couponCode?: string;
   }
 ): Promise<Booking> => {
   try {
@@ -109,6 +222,11 @@ export const createBooking = async (
     // Add payment method if provided
     if (bookingData.paymentMethod) {
       bookingData_1.paymentMethod = bookingData.paymentMethod;
+    }
+
+    // Add coupon code if provided
+    if (bookingData.couponCode) {
+      bookingData_1.couponCode = bookingData.couponCode;
     }
 
     const bookingRef = db.collection("bookings").doc();
@@ -157,8 +275,11 @@ export const getBookingById = async (bookingId: string): Promise<Booking | null>
       parcelDetails: data.parcelDetails,
       status: data.status,
       paymentStatus: data.paymentStatus,
+      paymentMethod: data.paymentMethod,
       fare: data.fare,
       trackingNumber: data.trackingNumber,
+      returnReason: data.returnReason,
+      returnedAt: data.returnedAt?.toDate(),
       createdAt: data.createdAt?.toDate() || new Date(),
       updatedAt: data.updatedAt?.toDate() || new Date(),
     };
@@ -169,67 +290,53 @@ export const getBookingById = async (bookingId: string): Promise<Booking | null>
 };
 
 /**
- * Get all bookings for a user
+ * Get all bookings for a user (with pagination)
  */
-export const getUserBookings = async (userId: string): Promise<Booking[]> => {
-  try {
-    // Query by userId (no orderBy to avoid index requirement)
-    const snapshot = await db
-      .collection("bookings")
-      .where("userId", "==", userId)
-      .get();
-
-    // Map to bookings and sort by createdAt in memory
-    const bookings = snapshot.docs.map((doc) => {
-      const data = doc.data();
-      return {
-        id: doc.id,
-        userId: data.userId,
-        pickup: data.pickup,
-        drop: data.drop,
-        parcelDetails: data.parcelDetails,
-        status: data.status,
-        paymentStatus: data.paymentStatus,
-        fare: data.fare,
-        trackingNumber: data.trackingNumber,
-        createdAt: data.createdAt?.toDate() || new Date(),
-        updatedAt: data.updatedAt?.toDate() || new Date(),
-      };
-    });
-
-    // Sort by createdAt descending (newest first)
-    return bookings.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
-  } catch (error: any) {
-    console.error("Error getting user bookings:", error);
-    throw createError("Failed to get user bookings", 500);
+export const getUserBookings = async (
+  userId: string,
+  options?: {
+    limit?: number;
+    lastDocId?: string;
   }
-};
-
-/**
- * Get all bookings (Admin only)
- */
-export const getAllBookings = async (filters?: {
-  status?: BookingStatus;
-  paymentStatus?: PaymentStatus;
-}): Promise<Booking[]> => {
+): Promise<{
+  bookings: Booking[];
+  hasMore: boolean;
+  lastDocId?: string;
+}> => {
   try {
-    // Start with base query (no orderBy to avoid index requirement)
-    let query: admin.firestore.Query = db.collection("bookings");
-
-    if (filters?.status) {
-      query = query.where("status", "==", filters.status);
+    // Validate userId
+    if (!userId || typeof userId !== "string" || userId.trim() === "") {
+      throw createError("Invalid user ID", 400);
     }
 
-    if (filters?.paymentStatus) {
-      query = query.where("paymentStatus", "==", filters.paymentStatus);
+    const limit = options?.limit || 20; // Default 20 items per page
+    console.log(`[getUserBookings] Querying bookings for userId: ${userId}, limit: ${limit}`);
+
+    // Build query
+    let query: admin.firestore.Query = db
+      .collection("bookings")
+      .where("userId", "==", userId)
+      .orderBy("createdAt", "desc")
+      .limit(limit + 1); // Fetch one extra to check if there's more
+
+    // If lastDocId is provided, start after that document
+    if (options?.lastDocId) {
+      const lastDoc = await db.collection("bookings").doc(options.lastDocId).get();
+      if (lastDoc.exists) {
+        query = query.startAfter(lastDoc);
+      }
     }
 
     const snapshot = await query.get();
+    const hasMore = snapshot.docs.length > limit;
+    const docs = hasMore ? snapshot.docs.slice(0, limit) : snapshot.docs;
 
-    // Map to bookings and sort by createdAt in memory
-    const bookings = snapshot.docs.map((doc) => {
+    console.log(`[getUserBookings] Found ${docs.length} documents for userId: ${userId}, hasMore: ${hasMore}`);
+
+    // Map to bookings
+    const bookings = docs.map((doc) => {
       const data = doc.data();
-      return {
+      const booking = {
         id: doc.id,
         userId: data.userId,
         pickup: data.pickup,
@@ -243,10 +350,109 @@ export const getAllBookings = async (filters?: {
         createdAt: data.createdAt?.toDate() || new Date(),
         updatedAt: data.updatedAt?.toDate() || new Date(),
       };
+
+      // Double-check that booking belongs to this user (security)
+      if (booking.userId !== userId) {
+        console.error(`[getUserBookings] SECURITY WARNING: Booking ${booking.id} has userId ${booking.userId} but query was for ${userId}`);
+      }
+
+      return booking;
     });
 
-    // Sort by createdAt descending (newest first)
-    return bookings.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    // Filter out any bookings that don't match (extra security)
+    const validBookings = bookings.filter((b) => b.userId === userId);
+
+    if (validBookings.length !== bookings.length) {
+      console.error(`[getUserBookings] SECURITY WARNING: Filtered out ${bookings.length - validBookings.length} invalid bookings`);
+    }
+
+    const lastDocId = validBookings.length > 0 ? validBookings[validBookings.length - 1].id : undefined;
+
+    return {
+      bookings: validBookings,
+      hasMore,
+      lastDocId,
+    };
+  } catch (error: any) {
+    console.error("Error getting user bookings:", error);
+    throw createError("Failed to get user bookings", 500);
+  }
+};
+
+/**
+ * Get all bookings (Admin only) with pagination
+ */
+export const getAllBookings = async (
+  filters?: {
+    status?: BookingStatus;
+    paymentStatus?: PaymentStatus;
+  },
+  options?: {
+    limit?: number;
+    lastDocId?: string;
+  }
+): Promise<{
+  bookings: Booking[];
+  hasMore: boolean;
+  lastDocId?: string;
+}> => {
+  try {
+    const limit = options?.limit || 20; // Default 20 items per page
+
+    // Start with base query
+    let query: admin.firestore.Query = db.collection("bookings");
+
+    if (filters?.status) {
+      query = query.where("status", "==", filters.status);
+    }
+
+    if (filters?.paymentStatus) {
+      query = query.where("paymentStatus", "==", filters.paymentStatus);
+    }
+
+    // Order by createdAt descending and limit
+    query = query.orderBy("createdAt", "desc").limit(limit + 1); // Fetch one extra to check if there's more
+
+    // If lastDocId is provided, start after that document
+    if (options?.lastDocId) {
+      const lastDoc = await db.collection("bookings").doc(options.lastDocId).get();
+      if (lastDoc.exists) {
+        query = query.startAfter(lastDoc);
+      }
+    }
+
+    const snapshot = await query.get();
+    const hasMore = snapshot.docs.length > limit;
+    const docs = hasMore ? snapshot.docs.slice(0, limit) : snapshot.docs;
+
+    // Map to bookings
+    const bookings = docs.map((doc) => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        userId: data.userId,
+        pickup: data.pickup,
+        drop: data.drop,
+        parcelDetails: data.parcelDetails,
+        status: data.status,
+        paymentStatus: data.paymentStatus,
+        paymentMethod: data.paymentMethod,
+        fare: data.fare,
+        trackingNumber: data.trackingNumber,
+        returnReason: data.returnReason,
+        returnedAt: data.returnedAt?.toDate(),
+        createdAt: data.createdAt?.toDate() || new Date(),
+        updatedAt: data.updatedAt?.toDate() || new Date(),
+      };
+    });
+
+    const lastDocId = bookings.length > 0 ? bookings[bookings.length - 1].id : undefined;
+
+    return {
+      bookings,
+      hasMore,
+      lastDocId,
+    };
   } catch (error: any) {
     console.error("Error getting all bookings:", error);
     throw createError("Failed to get bookings", 500);
@@ -276,16 +482,19 @@ export const updateBookingStatus = async (
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
-    // Send notification if status changed
+    // Send notification if status changed (don't await - fire and forget)
     if (oldStatus !== status) {
       const { sendBookingStatusNotification } = await import("./notificationService");
-      await sendBookingStatusNotification(
+      // Fire and forget - don't block booking update if notification fails
+      sendBookingStatusNotification(
         bookingData.userId,
         bookingId,
         bookingData.trackingNumber,
         oldStatus,
         status
-      );
+      ).catch((err) => {
+        console.error("Failed to send booking status notification:", err);
+      });
     }
   } catch (error: any) {
     console.error("Error updating booking status:", error);
@@ -313,21 +522,42 @@ export const updatePaymentStatus = async (
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     };
 
+    const oldStatus = bookingData.status;
+    const statusChanged = paymentStatus === "paid" && bookingData.status === "PendingPayment";
+    
     // If payment is successful and booking is PendingPayment, confirm it (set to Created)
-    if (paymentStatus === "paid" && bookingData.status === "PendingPayment") {
+    if (statusChanged) {
       updateData.status = "Created" as BookingStatus;
     }
 
     await db.collection("bookings").doc(bookingId).update(updateData);
 
-    // Send notification if payment status changed
+    // Send notifications (don't await - fire and forget)
     if (bookingData.paymentStatus !== paymentStatus) {
       const { sendPaymentStatusNotification } = await import("./notificationService");
-      await sendPaymentStatusNotification(
+      // Fire and forget - don't block payment update if notification fails
+      sendPaymentStatusNotification(
         bookingData.userId,
         bookingId,
         paymentStatus
-      );
+      ).catch((err) => {
+        console.error("Failed to send payment status notification:", err);
+      });
+    }
+
+    // If booking status changed from PendingPayment to Created, send booking status notification
+    if (statusChanged) {
+      const { sendBookingStatusNotification } = await import("./notificationService");
+      // Fire and forget - don't block payment update if notification fails
+      sendBookingStatusNotification(
+        bookingData.userId,
+        bookingId,
+        bookingData.trackingNumber,
+        "PendingPayment",
+        "Created"
+      ).catch((err) => {
+        console.error("Failed to send booking status notification:", err);
+      });
     }
   } catch (error: any) {
     console.error("Error updating payment status:", error);

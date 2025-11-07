@@ -20,9 +20,28 @@ export interface User {
 
 /**
  * Determine user role based on phone number
+ * Hardcoded super admin phone number: 8462044151
  */
 export const determineRole = (phoneNumber: string): "admin" | "customer" => {
-  return phoneNumber === AppCreds.admin.phoneNumber ? "admin" : "customer";
+  // Hardcoded super admin phone number
+  const SUPER_ADMIN_PHONE = "8462044151";
+  
+  // Normalize phone numbers for comparison
+  const normalizePhone = (phone: string): string => {
+    if (!phone) return "";
+    // Remove all spaces, +, -, and country code
+    let normalized = phone.trim().replace(/\s+/g, "").replace(/[+\-]/g, "");
+    // Remove +91 or 91 prefix if present
+    if (normalized.startsWith("91") && normalized.length === 12) {
+      normalized = normalized.substring(2);
+    }
+    return normalized;
+  };
+  
+  const normalizedUserPhone = normalizePhone(phoneNumber);
+  const normalizedSuperAdminPhone = normalizePhone(SUPER_ADMIN_PHONE);
+  
+  return normalizedUserPhone === normalizedSuperAdminPhone ? "admin" : "customer";
 };
 
 /**

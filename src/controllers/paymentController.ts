@@ -12,6 +12,7 @@ import { ENV } from "../config/env";
 /**
  * Create payment page for a booking
  * POST /payments/create
+ * For online payments, this now accepts booking data and creates booking only after payment success
  */
 export const createPaymentPage = async (
   req: Request,
@@ -20,13 +21,15 @@ export const createPaymentPage = async (
 ): Promise<void> => {
   try {
     const userId = req.user!.uid;
-    const { bookingId, customerName, customerEmail, customerMobile } = req.body;
+    const { 
+      bookingId, // Optional - if booking already exists (COD flow)
+      bookingData, // For online payments - booking data to create after payment
+      customerName, 
+      customerEmail, 
+      customerMobile 
+    } = req.body;
 
     // Validation
-    if (!bookingId) {
-      throw createError("Booking ID is required", 400);
-    }
-
     if (!customerName || !customerEmail || !customerMobile) {
       throw createError(
         "Customer name, email, and mobile are required",
@@ -34,80 +37,86 @@ export const createPaymentPage = async (
       );
     }
 
-    // Get booking details
-    const booking = await bookingService.getBookingById(bookingId);
+    let booking;
+    let fare: number;
+    let merchantReferenceId: string;
 
-    if (!booking) {
-      throw createError("Booking not found", 404);
+    if (bookingId) {
+      // Existing booking (COD or retry payment)
+      booking = await bookingService.getBookingById(bookingId);
+
+      if (!booking) {
+        throw createError("Booking not found", 404);
+      }
+
+      // Verify booking belongs to the user
+      if (booking.userId !== userId) {
+        throw createError("Unauthorized: Booking does not belong to user", 403);
+      }
+
+      if (booking.paymentStatus === "paid") {
+        throw createError("Booking is already paid", 400);
+      }
+
+      if (!booking.fare) {
+        throw createError("Booking fare not found", 400);
+      }
+
+      fare = booking.fare;
+      merchantReferenceId = `${bookingId}-${Date.now()}`;
+    } else if (bookingData) {
+      // New online payment - booking will be created after payment success
+      // Validate booking data
+      if (!bookingData.pickup || !bookingData.drop || !bookingData.parcelDetails) {
+        throw createError("Complete booking data is required", 400);
+      }
+
+      if (!bookingData.fare || bookingData.fare <= 0) {
+        throw createError("Valid fare is required", 400);
+      }
+
+      fare = bookingData.fare;
+      // Use a temporary ID that will be replaced with actual booking ID after payment
+      const tempId = `temp-${userId}-${Date.now()}`;
+      merchantReferenceId = `${tempId}-${Date.now()}`;
+    } else {
+      throw createError("Either bookingId or bookingData is required", 400);
     }
-
-    // Verify booking belongs to the user
-    if (booking.userId !== userId) {
-      throw createError("Unauthorized: Booking does not belong to user", 403);
-    }
-
-    if (booking.paymentStatus === "paid") {
-      throw createError("Booking is already paid", 400);
-    }
-
-    if (!booking.fare) {
-      throw createError("Booking fare not found", 400);
-    }
-
-    // Generate unique merchant reference ID
-    const merchantReferenceId = `${bookingId}-${Date.now()}`;
 
     // Construct redirect URLs
-    // For mobile apps, use deep link format (parcelapp://) or web URL
-    // Paygic will redirect to these URLs after payment
     const baseUrl = ENV.PAYGIC_SUCCESS_URL || `${req.protocol}://${req.get("host")}`;
     const failedBaseUrl = ENV.PAYGIC_FAILED_URL || baseUrl;
-    const successUrl = `${baseUrl}/api/payments/success?bookingId=${bookingId}&merchantRefId=${merchantReferenceId}`;
-    const failedUrl = `${failedBaseUrl}/api/payments/failed?bookingId=${bookingId}&merchantRefId=${merchantReferenceId}`;
+    const successUrl = `${baseUrl}/api/payments/success?merchantRefId=${encodeURIComponent(merchantReferenceId)}`;
+    const failedUrl = `${failedBaseUrl}/api/payments/failed?merchantRefId=${encodeURIComponent(merchantReferenceId)}`;
 
-    // Create payment page on Paygic
-    const paymentResponse = await paygicService.createPaymentPage(
+    // Create payment page via Paygic
+    const paymentPage = await paygicService.createPaymentPage({
       merchantReferenceId,
-      booking.fare,
-      customerMobile,
+      amount: fare,
       customerName,
       customerEmail,
+      customerMobile,
       successUrl,
-      failedUrl
-    );
+      failedUrl,
+    });
 
-    // Debug: Log the response structure
-    console.log("Paygic payment response:", JSON.stringify(paymentResponse, null, 2));
-
-    // Check if payment response has data
-    if (!paymentResponse) {
-      throw createError("Invalid payment response from Paygic: response is null or undefined", 500);
+    // Store booking data temporarily if this is a new booking (for webhook to create it)
+    if (bookingData && !bookingId) {
+      // Store in a temporary collection or pass via merchantReferenceId
+      // For now, we'll encode it in the merchantReferenceId and extract it in webhook
+      // Better approach: Store in a temporary Firestore collection with TTL
+      const tempBookingRef = await bookingService.storeTempBookingData(userId, bookingData, merchantReferenceId);
+      console.log(`[PaymentController] Stored temp booking data with ref: ${tempBookingRef}`);
     }
 
-    if (!paymentResponse.data) {
-      console.error("Payment response structure:", paymentResponse);
-      throw createError(
-        `Invalid payment response from Paygic: missing data property. Response: ${JSON.stringify(paymentResponse)}`,
-        500
-      );
-    }
-
-    if (!paymentResponse.data.payPageUrl) {
-      console.error("Payment response data:", paymentResponse.data);
-      throw createError(
-        `Invalid payment response from Paygic: missing payPageUrl. Data: ${JSON.stringify(paymentResponse.data)}`,
-        500
-      );
-    }
-
-    res.status(200).json({
+    res.json({
       success: true,
       data: {
-        paymentUrl: paymentResponse.data.payPageUrl,
-        merchantReferenceId: paymentResponse.data.merchantReferenceId,
-        paygicReferenceId: paymentResponse.data.paygicReferenceId,
-        expiry: paymentResponse.data.expiry,
-        amount: paymentResponse.data.amount,
+        paymentUrl: paymentPage.paymentUrl,
+        merchantReferenceId: paymentPage.merchantReferenceId,
+        paygicReferenceId: paymentPage.paygicReferenceId,
+        expiry: paymentPage.expiry,
+        amount: paymentPage.amount,
       },
     });
   } catch (error: any) {
@@ -131,35 +140,24 @@ export const checkPaymentStatus = async (
       throw createError("Merchant reference ID is required", 400);
     }
 
-    const statusResponse = await paygicService.checkPaymentStatus(
-      merchantReferenceId
-    );
+    const status = await paygicService.checkPaymentStatus(merchantReferenceId);
 
-    // Return status regardless of whether it's SUCCESS, PENDING, or FAILED
-    // Frontend should handle these cases appropriately
-    res.status(200).json({
-      success: true,
-      data: {
-        status: statusResponse.txnStatus,
-        message: statusResponse.msg,
-        ...(statusResponse.data || {}),
-      },
-    });
-  } catch (error: any) {
-    // If the error message indicates transaction status, handle it gracefully
-    if (error.message?.includes("Transaction is not successful") || 
-        error.message?.includes("not successful")) {
-      // This might mean the transaction is still pending or failed
-      // Return a pending status instead of throwing
-      res.status(200).json({
+    // If status is PENDING, return it gracefully instead of throwing error
+    if (status.txnStatus === "PENDING") {
+      res.json({
         success: true,
-        data: {
-          status: "PENDING" as const,
-          message: error.message || "Transaction status could not be determined",
-        },
+        status: "PENDING",
+        message: "Transaction is not successful",
       });
       return;
     }
+
+    res.json({
+      success: true,
+      status: status.txnStatus,
+      data: status,
+    });
+  } catch (error: any) {
     next(error);
   }
 };
@@ -180,15 +178,68 @@ export const handleWebhook = async (
     const { txnStatus, data } = webhookData;
     const merchantReferenceId = data.merchantReferenceId;
 
-    // Extract booking ID from merchant reference ID (format: bookingId-timestamp)
-    const bookingId = merchantReferenceId.split("-")[0];
+    // Extract booking ID or temp ID from merchant reference ID (format: bookingId-timestamp or temp-userId-timestamp-timestamp)
+    const parts = merchantReferenceId.split("-");
+    const firstPart = parts[0];
+    
+    let bookingId: string | null = null;
+    let isTempBooking = false;
 
-    // Update booking payment status based on transaction status
-    if (txnStatus === "SUCCESS") {
-      // This will also confirm the booking (set status from PendingPayment to Created)
-      await bookingService.updatePaymentStatus(bookingId, "paid");
-    } else if (txnStatus === "FAILED") {
-      await bookingService.updatePaymentStatus(bookingId, "failed");
+    if (firstPart === "temp") {
+      // This is a new booking - need to create it
+      isTempBooking = true;
+      // Extract userId from temp ID: temp-userId-timestamp-timestamp
+      const userId = parts[1];
+      const tempId = `${firstPart}-${userId}-${parts[2]}`;
+      
+      // Get temp booking data
+      const tempBookingData = await bookingService.getTempBookingData(tempId);
+      
+      if (!tempBookingData) {
+        console.error(`[Webhook] Temp booking data not found for: ${tempId}`);
+        throw createError("Temporary booking data not found", 404);
+      }
+
+      if (txnStatus === "SUCCESS") {
+        // Create the actual booking
+        const booking = await bookingService.createBooking(userId, {
+          pickup: tempBookingData.pickup,
+          drop: tempBookingData.drop,
+          parcelDetails: tempBookingData.parcelDetails,
+          fare: tempBookingData.fare,
+          paymentMethod: "online",
+          couponCode: tempBookingData.couponCode,
+        });
+
+        // Update payment status to paid (this will also set status from PendingPayment to Created)
+        await bookingService.updatePaymentStatus(booking.id, "paid");
+        
+        bookingId = booking.id;
+        
+        // Update temp booking data with actual booking ID (for success handler)
+        await bookingService.updateTempBookingData(tempId, booking.id);
+        
+        // Delete temp booking data after a delay (to allow success handler to read it)
+        setTimeout(() => {
+          bookingService.deleteTempBookingData(tempId).catch(console.error);
+        }, 60000); // Delete after 1 minute
+        
+        console.log(`[Webhook] Created booking ${bookingId} after successful payment`);
+      } else if (txnStatus === "FAILED") {
+        // Delete temp booking data - booking was never created
+        await bookingService.deleteTempBookingData(tempId);
+        console.log(`[Webhook] Payment failed, temp booking data deleted for: ${tempId}`);
+      }
+    } else {
+      // Existing booking - just update payment status
+      bookingId = firstPart;
+
+      if (txnStatus === "SUCCESS") {
+        // This will also confirm the booking (set status from PendingPayment to Created)
+        await bookingService.updatePaymentStatus(bookingId, "paid");
+      } else if (txnStatus === "FAILED") {
+        await bookingService.updatePaymentStatus(bookingId, "failed");
+      }
     }
 
     // Log webhook for debugging
@@ -196,6 +247,7 @@ export const handleWebhook = async (
       bookingId,
       merchantReferenceId,
       txnStatus,
+      isTempBooking,
       amount: data.amount,
       paygicReferenceId: data.paygicReferenceId,
     });
@@ -225,9 +277,9 @@ export const paymentSuccess = async (
   next: NextFunction
 ): Promise<void> => {
   try {
-    const { bookingId, merchantRefId } = req.query;
+    const { merchantRefId } = req.query;
 
-    if (!bookingId || !merchantRefId) {
+    if (!merchantRefId) {
       throw createError("Missing required parameters", 400);
     }
 
@@ -237,11 +289,30 @@ export const paymentSuccess = async (
     );
 
     if (statusResponse.txnStatus === "SUCCESS") {
-      // Update booking payment status (this will also confirm booking from PendingPayment to Created)
-      await bookingService.updatePaymentStatus(
-        bookingId as string,
-        "paid"
-      );
+      // Extract booking ID from merchant reference
+      const parts = (merchantRefId as string).split("-");
+      const firstPart = parts[0];
+      
+      let bookingId: string | null = null;
+      
+      if (firstPart === "temp") {
+        // Find the booking that was created by webhook
+        const userId = parts[1];
+        const tempId = `${firstPart}-${userId}-${parts[2]}`;
+        const tempBookingData = await bookingService.getTempBookingData(tempId);
+        
+        if (tempBookingData && tempBookingData.bookingId) {
+          bookingId = tempBookingData.bookingId;
+        } else {
+          // Try to find booking by userId and recent creation
+          // This is a fallback - webhook should have created it
+          throw createError("Booking not found. Please check your bookings.", 404);
+        }
+      } else {
+        bookingId = firstPart;
+        // Update booking payment status (this will also confirm booking from PendingPayment to Created)
+        await bookingService.updatePaymentStatus(bookingId, "paid");
+      }
 
       // Redirect to success page (mobile app will handle this)
       res.status(200).json({
@@ -253,7 +324,7 @@ export const paymentSuccess = async (
     } else {
       // Redirect to failed page
       res.redirect(
-        `/api/payments/failed?bookingId=${bookingId}&merchantRefId=${merchantRefId}`
+        `/api/payments/failed?merchantRefId=${merchantRefId}`
       );
     }
   } catch (error: any) {
@@ -271,24 +342,14 @@ export const paymentFailed = async (
   next: NextFunction
 ): Promise<void> => {
   try {
-    const { bookingId, merchantRefId } = req.query;
-
-    if (bookingId) {
-      // Update booking payment status to failed
-      await bookingService.updatePaymentStatus(
-        bookingId as string,
-        "failed"
-      );
-    }
+    const { merchantRefId } = req.query;
 
     res.status(200).json({
       success: false,
       message: "Payment failed",
-      bookingId,
       merchantReferenceId: merchantRefId,
     });
   } catch (error: any) {
     next(error);
   }
 };
-

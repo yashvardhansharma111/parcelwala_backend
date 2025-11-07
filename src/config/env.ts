@@ -30,10 +30,14 @@ export const ENV = {
 
   // Paygic Payment Gateway
   PAYGIC_MID: process.env.PAYGIC_MID || "",
-  PAYGIC_TOKEN: process.env.PAYGIC_Token || "",
+  PAYGIC_TOKEN: process.env.PAYGIC_TOKEN || "",
   PAYGIC_BASE_URL: process.env.PAYGIC_BASE_URL || "https://server.paygic.in/api/v2",
   PAYGIC_SUCCESS_URL: process.env.PAYGIC_SUCCESS_URL || "",
   PAYGIC_FAILED_URL: process.env.PAYGIC_FAILED_URL || "",
 };
 
+// Log environment variable status (without exposing sensitive values)
 console.log(`✅ Environment loaded for: ${ENV.NODE_ENV}`);
+console.log(`🔐 Paygic MID configured: ${ENV.PAYGIC_MID ? "Yes" : "No"}`);
+console.log(`🔐 Paygic Token configured: ${ENV.PAYGIC_TOKEN ? "Yes" : "No"}`);
+console.log(`📱 Renflair API Key configured: ${ENV.RENFLAIR_API_KEY ? "Yes" : "No"}`);
