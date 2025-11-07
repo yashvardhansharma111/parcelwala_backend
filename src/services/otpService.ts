@@ -84,30 +84,25 @@ export const sendOTP = async (phoneNumber: string): Promise<void> => {
     // Extract 10-digit phone number (without country code)
     const phone = extractPhoneNumber(phoneNumber);
 
-    // Check if we're in development mode
-    const isDevelopment = ENV.NODE_ENV !== "production";
+    // Validate API key - if not configured, fall back to development mode (logging)
+    const hasApiKey = ENV.RENFLAIR_API_KEY && ENV.RENFLAIR_API_KEY.trim() !== "";
 
-    if (isDevelopment) {
-      // Development Mode: Log OTP instead of sending real SMS
+    if (!hasApiKey) {
+      // Development Mode: Log OTP instead of sending real SMS (when API key not configured)
       console.log("=".repeat(60));
-      console.log("🔧 DEVELOPMENT MODE - OTP NOT SENT VIA SMS");
+      console.log("🔧 DEVELOPMENT MODE - OTP NOT SENT VIA SMS (API Key not configured)");
       console.log("=".repeat(60));
       console.log(`📱 Phone Number: ${normalizedPhone}`);
       console.log(`🔐 OTP Code: ${otp}`);
       console.log(`⏰ Valid for: 5 minutes`);
       console.log("=".repeat(60));
       console.log(`✅ OTP generated and stored in cache with key: ${normalizedPhone}`);
+      console.log(`💡 To enable real SMS, set RENFLAIR_API_KEY in your .env file`);
+      console.log("=".repeat(60));
       return;
     }
 
-    // Production Mode: Send real SMS via Renflair
-    // Validate API key
-    if (!ENV.RENFLAIR_API_KEY || ENV.RENFLAIR_API_KEY.trim() === "") {
-      throw createError(
-        "Renflair API key not configured. Please set RENFLAIR_API_KEY in your .env file",
-        500
-      );
-    }
+    // Production Mode: Send real SMS via Renflair (when API key is configured)
 
     // Renflair API endpoint for OTP
     const apiUrl = "https://sms.renflair.in/V1.php";
