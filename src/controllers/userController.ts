@@ -5,7 +5,7 @@
 
 import { Request, Response, NextFunction } from "express";
 import { getUserById } from "../services/userService";
-import { saveFCMToken } from "../services/notificationService";
+import { saveExpoPushToken } from "../services/notificationService";
 import { createError } from "../utils/errorHandler";
 
 /**
@@ -43,10 +43,10 @@ export const getProfile = async (
 };
 
 /**
- * Save FCM token for push notifications
- * POST /user/fcm-token
+ * Save Expo Push Token for push notifications
+ * POST /user/expo-push-token
  */
-export const saveFCMTokenEndpoint = async (
+export const saveExpoPushTokenEndpoint = async (
   req: Request,
   res: Response,
   next: NextFunction
@@ -59,14 +59,14 @@ export const saveFCMTokenEndpoint = async (
     const { token } = req.body;
 
     if (!token || typeof token !== "string") {
-      throw createError("FCM token is required", 400);
+      throw createError("Expo Push Token is required", 400);
     }
 
-    await saveFCMToken(req.user.uid, token);
+    await saveExpoPushToken(req.user.uid, token);
 
     res.status(200).json({
       success: true,
-      message: "FCM token saved successfully",
+      message: "Expo Push Token saved successfully",
     });
   } catch (error: any) {
     next(error);

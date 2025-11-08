@@ -15,8 +15,8 @@ router.use(authenticate);
 // Get user profile
 router.get("/profile", userController.getProfile);
 
-// Save FCM token for push notifications
-router.post("/fcm-token", userController.saveFCMTokenEndpoint);
+// Save Expo Push Token for push notifications
+router.post("/expo-push-token", userController.saveExpoPushTokenEndpoint);
 
 export default router;
 
