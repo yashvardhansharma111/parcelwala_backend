@@ -29,8 +29,8 @@ export const ENV = {
   ADMIN_PHONE_NUMBER: process.env.ADMIN_PHONE_NUMBER || "+911234567890",
 
   // Paygic Payment Gateway
-  PAYGIC_MID: process.env.PAYGIC_MID || "",
-  PAYGIC_TOKEN: process.env.PAYGIC_TOKEN || "",
+  PAYGIC_MID: process.env.PAYGIC_MID || "FINNPAYS",
+  PAYGIC_TOKEN: process.env.PAYGIC_TOKEN || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJtaWQiOiJGSU5OUEFZUyIsIl9pZCI6IjY3Njk2MGI0ODJlNTk0MzMyMzYxMTJjOSIsImlhdCI6MTc2MjE4ODY5M30.gNpJsijmfimsXTl4ovIcEpYJ5iRtIwT55KQiCg2_7EU",
   PAYGIC_BASE_URL: process.env.PAYGIC_BASE_URL || "https://server.paygic.in/api/v2",
   PAYGIC_SUCCESS_URL: process.env.PAYGIC_SUCCESS_URL || "",
   PAYGIC_FAILED_URL: process.env.PAYGIC_FAILED_URL || "",
