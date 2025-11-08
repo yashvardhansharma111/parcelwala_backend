@@ -52,17 +52,22 @@ export const storeTempBookingData = async (
       throw createError("Invalid booking data: fare must be positive", 400);
     }
 
-    const tempData: TempBookingData = {
+    // Prepare temp data - convert undefined to null for Firestore compatibility
+    const tempData: any = {
       userId,
       pickup: bookingData.pickup,
       drop: bookingData.drop,
       parcelDetails: bookingData.parcelDetails,
       fare: bookingData.fare,
       paymentMethod: "online",
-      couponCode: bookingData.couponCode,
       merchantReferenceId,
-      createdAt: new Date(),
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
     };
+
+    // Only include couponCode if it's provided (not undefined)
+    if (bookingData.couponCode !== undefined && bookingData.couponCode !== null) {
+      tempData.couponCode = bookingData.couponCode;
+    }
 
     // Store with TTL of 1 hour (booking should be created within payment window)
     await db.collection("temp_bookings").doc(tempId).set({
@@ -253,13 +258,13 @@ export const createBooking = async (
       bookingData_1.fare = bookingData.fare;
     }
 
-    // Add payment method if provided
-    if (bookingData.paymentMethod) {
+    // Add payment method if provided (not undefined or null)
+    if (bookingData.paymentMethod !== undefined && bookingData.paymentMethod !== null) {
       bookingData_1.paymentMethod = bookingData.paymentMethod;
     }
 
-    // Add coupon code if provided
-    if (bookingData.couponCode) {
+    // Add coupon code if provided (not undefined, null, or empty string)
+    if (bookingData.couponCode !== undefined && bookingData.couponCode !== null && bookingData.couponCode !== "") {
       bookingData_1.couponCode = bookingData.couponCode;
     }
 
