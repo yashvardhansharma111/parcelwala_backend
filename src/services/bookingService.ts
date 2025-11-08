@@ -351,22 +351,56 @@ export const getUserBookings = async (
     const limit = options?.limit || 20; // Default 20 items per page
     console.log(`[getUserBookings] Querying bookings for userId: ${userId}, limit: ${limit}`);
 
-    // Build query
-    let query: admin.firestore.Query = db
-      .collection("bookings")
-      .where("userId", "==", userId)
-      .orderBy("createdAt", "desc")
-      .limit(limit + 1); // Fetch one extra to check if there's more
+    let snapshot: admin.firestore.QuerySnapshot;
+    
+    try {
+      // Build query with composite index (userId + createdAt)
+      let query: admin.firestore.Query = db
+        .collection("bookings")
+        .where("userId", "==", userId)
+        .orderBy("createdAt", "desc")
+        .limit(limit + 1); // Fetch one extra to check if there's more
 
-    // If lastDocId is provided, start after that document
-    if (options?.lastDocId) {
-      const lastDoc = await db.collection("bookings").doc(options.lastDocId).get();
-      if (lastDoc.exists) {
-        query = query.startAfter(lastDoc);
+      // If lastDocId is provided, start after that document
+      if (options?.lastDocId) {
+        const lastDoc = await db.collection("bookings").doc(options.lastDocId).get();
+        if (lastDoc.exists) {
+          query = query.startAfter(lastDoc);
+        }
+      }
+
+      snapshot = await query.get();
+    } catch (error: any) {
+      // If composite index error, fall back to simpler query
+      if (error.code === 9 || error.message?.includes("index")) {
+        console.warn(`[getUserBookings] Composite index missing, using fallback query. Error: ${error.message}`);
+        console.warn(`[getUserBookings] Please create a composite index: bookings(userId, createdAt DESC)`);
+        
+        // Fallback: Get all bookings for user, then sort in memory
+        const allDocs = await db
+          .collection("bookings")
+          .where("userId", "==", userId)
+          .get();
+        
+        // Sort by createdAt descending
+        const sortedDocs = allDocs.docs.sort((a, b) => {
+          const aTime = a.data().createdAt?.toMillis() || 0;
+          const bTime = b.data().createdAt?.toMillis() || 0;
+          return bTime - aTime;
+        });
+        
+        // Apply pagination manually
+        const startIndex = options?.lastDocId 
+          ? sortedDocs.findIndex(d => d.id === options.lastDocId) + 1
+          : 0;
+        const endIndex = Math.min(startIndex + limit + 1, sortedDocs.length);
+        snapshot = {
+          docs: sortedDocs.slice(startIndex, endIndex),
+        } as admin.firestore.QuerySnapshot;
+      } else {
+        throw error;
       }
     }
-
-    const snapshot = await query.get();
     const hasMore = snapshot.docs.length > limit;
     const docs = hasMore ? snapshot.docs.slice(0, limit) : snapshot.docs;
 
@@ -386,6 +420,8 @@ export const getUserBookings = async (
         paymentMethod: data.paymentMethod,
         fare: data.fare,
         trackingNumber: data.trackingNumber,
+        returnReason: data.returnReason,
+        returnedAt: data.returnedAt?.toDate(),
         createdAt: data.createdAt?.toDate() || new Date(),
         updatedAt: data.updatedAt?.toDate() || new Date(),
       };
@@ -406,6 +442,8 @@ export const getUserBookings = async (
     }
 
     const lastDocId = validBookings.length > 0 ? validBookings[validBookings.length - 1].id : undefined;
+
+    console.log(`[getUserBookings] Returning ${validBookings.length} bookings, hasMore: ${hasMore}, lastDocId: ${lastDocId || "none"}`);
 
     return {
       bookings: validBookings,
