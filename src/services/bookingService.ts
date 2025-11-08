@@ -38,10 +38,20 @@ export const storeTempBookingData = async (
   merchantReferenceId: string
 ): Promise<string> => {
   try {
-    // Extract temp ID from merchantReferenceId (format: temp-userId-timestamp-timestamp)
-    const parts = merchantReferenceId.split("-");
-    const tempId = `temp-${parts[1]}-${parts[2]}`;
+    // Generate a unique temp ID based on merchantReferenceId
+    // Use the full merchantReferenceId as the document ID (sanitized for Firestore)
+    // Firestore document IDs can't contain certain characters, so we'll use a hash-like approach
+    const tempId = merchantReferenceId.replace(/[^a-zA-Z0-9_-]/g, "_");
     
+    // Validate booking data
+    if (!bookingData.pickup || !bookingData.drop || !bookingData.parcelDetails) {
+      throw createError("Invalid booking data: missing required fields", 400);
+    }
+
+    if (!bookingData.fare || bookingData.fare <= 0) {
+      throw createError("Invalid booking data: fare must be positive", 400);
+    }
+
     const tempData: TempBookingData = {
       userId,
       pickup: bookingData.pickup,
@@ -60,20 +70,42 @@ export const storeTempBookingData = async (
       expiresAt: admin.firestore.Timestamp.fromDate(new Date(Date.now() + 60 * 60 * 1000)),
     });
 
+    console.log(`[storeTempBookingData] Successfully stored temp booking with ID: ${tempId}`);
     return tempId;
   } catch (error: any) {
     console.error("Error storing temp booking data:", error);
-    throw createError("Failed to store temporary booking data", 500);
+    console.error("Error details:", {
+      message: error.message,
+      code: error.code,
+      stack: error.stack,
+      userId,
+      merchantReferenceId,
+      bookingDataKeys: Object.keys(bookingData || {}),
+    });
+    
+    // Provide more specific error message
+    if (error.message?.includes("Invalid booking data")) {
+      throw error; // Re-throw validation errors as-is
+    }
+    
+    throw createError(
+      `Failed to store temporary booking data: ${error.message || "Unknown error"}`,
+      500
+    );
   }
 };
 
 /**
- * Get temporary booking data
+ * Get temporary booking data by merchantReferenceId
  */
-export const getTempBookingData = async (tempId: string): Promise<TempBookingData | null> => {
+export const getTempBookingData = async (merchantReferenceId: string): Promise<TempBookingData | null> => {
   try {
+    // Sanitize merchantReferenceId to match how it was stored
+    const tempId = merchantReferenceId.replace(/[^a-zA-Z0-9_-]/g, "_");
+    
     const doc = await db.collection("temp_bookings").doc(tempId).get();
     if (!doc.exists) {
+      console.log(`[getTempBookingData] No temp booking found for merchantReferenceId: ${merchantReferenceId} (tempId: ${tempId})`);
       return null;
     }
     const data = doc.data()!;

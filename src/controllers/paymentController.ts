@@ -178,31 +178,24 @@ export const handleWebhook = async (
     const { txnStatus, data } = webhookData;
     const merchantReferenceId = data.merchantReferenceId;
 
-    // Extract booking ID or temp ID from merchant reference ID (format: bookingId-timestamp or temp-userId-timestamp-timestamp)
-    const parts = merchantReferenceId.split("-");
-    const firstPart = parts[0];
+    // Check if this is a temp booking (starts with "temp-")
+    const isTempBooking = merchantReferenceId.startsWith("temp-");
     
     let bookingId: string | null = null;
-    let isTempBooking = false;
 
-    if (firstPart === "temp") {
+    if (isTempBooking) {
       // This is a new booking - need to create it
-      isTempBooking = true;
-      // Extract userId from temp ID: temp-userId-timestamp-timestamp
-      const userId = parts[1];
-      const tempId = `${firstPart}-${userId}-${parts[2]}`;
-      
-      // Get temp booking data
-      const tempBookingData = await bookingService.getTempBookingData(tempId);
+      // Get temp booking data using merchantReferenceId directly
+      const tempBookingData = await bookingService.getTempBookingData(merchantReferenceId);
       
       if (!tempBookingData) {
-        console.error(`[Webhook] Temp booking data not found for: ${tempId}`);
+        console.error(`[Webhook] Temp booking data not found for merchantReferenceId: ${merchantReferenceId}`);
         throw createError("Temporary booking data not found", 404);
       }
 
       if (txnStatus === "SUCCESS") {
         // Create the actual booking
-        const booking = await bookingService.createBooking(userId, {
+        const booking = await bookingService.createBooking(tempBookingData.userId, {
           pickup: tempBookingData.pickup,
           drop: tempBookingData.drop,
           parcelDetails: tempBookingData.parcelDetails,
@@ -217,6 +210,8 @@ export const handleWebhook = async (
         bookingId = booking.id;
         
         // Update temp booking data with actual booking ID (for success handler)
+        // Use sanitized merchantReferenceId as tempId
+        const tempId = merchantReferenceId.replace(/[^a-zA-Z0-9_-]/g, "_");
         await bookingService.updateTempBookingData(tempId, booking.id);
         
         // Delete temp booking data after a delay (to allow success handler to read it)
@@ -227,17 +222,19 @@ export const handleWebhook = async (
         console.log(`[Webhook] Created booking ${bookingId} after successful payment`);
       } else if (txnStatus === "FAILED") {
         // Delete temp booking data - booking was never created
+        const tempId = merchantReferenceId.replace(/[^a-zA-Z0-9_-]/g, "_");
         await bookingService.deleteTempBookingData(tempId);
         console.log(`[Webhook] Payment failed, temp booking data deleted for: ${tempId}`);
       }
     } else {
-      // Existing booking - just update payment status
-      bookingId = firstPart;
+      // Existing booking - extract booking ID from merchantReferenceId (format: bookingId-timestamp)
+      const parts = merchantReferenceId.split("-");
+      bookingId = parts[0];
 
-      if (txnStatus === "SUCCESS") {
+      if (txnStatus === "SUCCESS" && bookingId) {
         // This will also confirm the booking (set status from PendingPayment to Created)
         await bookingService.updatePaymentStatus(bookingId, "paid");
-      } else if (txnStatus === "FAILED") {
+      } else if (txnStatus === "FAILED" && bookingId) {
         await bookingService.updatePaymentStatus(bookingId, "failed");
       }
     }
@@ -290,16 +287,15 @@ export const paymentSuccess = async (
 
     if (statusResponse.txnStatus === "SUCCESS") {
       // Extract booking ID from merchant reference
-      const parts = (merchantRefId as string).split("-");
-      const firstPart = parts[0];
+      const merchantRefIdStr = merchantRefId as string;
+      const isTempBooking = merchantRefIdStr.startsWith("temp-");
       
       let bookingId: string | null = null;
       
-      if (firstPart === "temp") {
+      if (isTempBooking) {
         // Find the booking that was created by webhook
-        const userId = parts[1];
-        const tempId = `${firstPart}-${userId}-${parts[2]}`;
-        const tempBookingData = await bookingService.getTempBookingData(tempId);
+        // Get temp booking data using merchantReferenceId directly
+        const tempBookingData = await bookingService.getTempBookingData(merchantRefIdStr);
         
         if (tempBookingData && tempBookingData.bookingId) {
           bookingId = tempBookingData.bookingId;
@@ -309,7 +305,9 @@ export const paymentSuccess = async (
           throw createError("Booking not found. Please check your bookings.", 404);
         }
       } else {
-        bookingId = firstPart;
+        // Extract booking ID from merchantRefId (format: bookingId-timestamp)
+        const parts = merchantRefIdStr.split("-");
+        bookingId = parts[0];
         // Update booking payment status (this will also confirm booking from PendingPayment to Created)
         await bookingService.updatePaymentStatus(bookingId, "paid");
       }

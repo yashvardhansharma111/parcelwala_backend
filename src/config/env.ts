@@ -26,7 +26,7 @@ export const ENV = {
   REFRESH_TOKEN_EXPIRY: process.env.REFRESH_TOKEN_EXPIRY || "7d",
 
   // Admin
-  ADMIN_PHONE_NUMBER: process.env.ADMIN_PHONE_NUMBER || "+911234567890",
+  ADMIN_PHONE_NUMBER: process.env.ADMIN_PHONE_NUMBER || "+918462044151",
 
   // Paygic Payment Gateway
   PAYGIC_MID: process.env.PAYGIC_MID || "FINNPAYS",
