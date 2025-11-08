@@ -58,7 +58,8 @@ export const getDashboardAnalytics = async (): Promise<DashboardAnalytics> => {
     const userCount = usersSnapshot.size;
 
     // Get all bookings
-    const bookings = await getAllBookings();
+    const bookingsResult = await getAllBookings({}, { limit: 10000 }); // Get all bookings for analytics
+    const bookings = bookingsResult.bookings;
 
     // Calculate today's date
     const today = new Date();
@@ -72,13 +73,13 @@ export const getDashboardAnalytics = async (): Promise<DashboardAnalytics> => {
       (b) => b.createdAt >= today && b.createdAt < tomorrow
     ).length;
     const inTransitBookings = bookings.filter(
-      (b) => b.status === "In Transit"
+      (b) => b.status === "Shipped"
     ).length;
     const deliveredBookings = bookings.filter(
       (b) => b.status === "Delivered"
     ).length;
     const cancelledBookings = bookings.filter(
-      (b) => b.status === "Cancelled"
+      (b) => b.status === "Returned"
     ).length;
 
     // Calculate revenue
@@ -159,7 +160,17 @@ export const getCustomerAnalytics = async (
       const data = doc.data();
       return {
         id: doc.id,
-        ...data,
+        userId: data.userId,
+        pickup: data.pickup,
+        drop: data.drop,
+        parcelDetails: data.parcelDetails,
+        status: data.status,
+        paymentStatus: data.paymentStatus,
+        paymentMethod: data.paymentMethod,
+        fare: data.fare,
+        trackingNumber: data.trackingNumber,
+        returnReason: data.returnReason,
+        returnedAt: data.returnedAt?.toDate(),
         createdAt: data.createdAt?.toDate() || new Date(),
         updatedAt: data.updatedAt?.toDate() || new Date(),
       };
@@ -232,8 +243,8 @@ export const getAllCustomers = async (): Promise<CustomerSummary[]> => {
 
       // Calculate lifetime spend
       const lifetimeSpend = bookings
-        .filter((b) => b.fare && b.paymentStatus === "paid")
-        .reduce((sum, b) => sum + (b.fare || 0), 0);
+        .filter((b: any) => b.fare && b.paymentStatus === "paid")
+        .reduce((sum: number, b: any) => sum + (b.fare || 0), 0);
 
       // Get complaints
       let complaints = 0;
@@ -282,7 +293,8 @@ export const getRevenueAnalytics = async (
   days: number = 30
 ): Promise<RevenueData[]> => {
   try {
-    const bookings = await getAllBookings();
+    const bookingsResult = await getAllBookings({}, { limit: 10000 });
+    const bookings = bookingsResult.bookings;
 
     // Calculate date range
     const endDate = new Date();
@@ -337,14 +349,14 @@ export const getRevenueAnalytics = async (
  */
 export const getFailedDeliveries = async (): Promise<FailedDelivery[]> => {
   try {
-    const bookings = await getAllBookings();
+    const bookingsResult = await getAllBookings({}, { limit: 10000 });
+    const bookings = bookingsResult.bookings;
 
     // Filter failed deliveries and returns
     const failed = bookings.filter(
       (b) =>
-        b.status === "Cancelled" ||
-        b.status === "Failed" ||
-        (b.status === "Delivered" && b.paymentStatus === "unpaid")
+        b.status === "Returned" ||
+        (b.status === "Delivered" && b.paymentStatus === "failed")
     );
 
     // Get user details for each booking

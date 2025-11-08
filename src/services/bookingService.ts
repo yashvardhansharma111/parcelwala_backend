@@ -160,6 +160,8 @@ export interface Booking {
   createdAt: Date;
   updatedAt: Date;
   trackingNumber?: string;
+  returnReason?: string;
+  returnedAt?: Date;
 }
 
 /**
@@ -464,7 +466,8 @@ export const getAllBookings = async (
  */
 export const updateBookingStatus = async (
   bookingId: string,
-  status: BookingStatus
+  status: BookingStatus,
+  returnReason?: string
 ): Promise<void> => {
   try {
     // Get current booking to track status change
@@ -476,11 +479,20 @@ export const updateBookingStatus = async (
     const bookingData = bookingDoc.data()!;
     const oldStatus = bookingData.status as BookingStatus;
 
-    // Update status
-    await db.collection("bookings").doc(bookingId).update({
+    // Prepare update data
+    const updateData: any = {
       status,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
+    };
+
+    // If status is "Returned", add returnReason and returnedAt
+    if (status === "Returned" && returnReason) {
+      updateData.returnReason = returnReason;
+      updateData.returnedAt = admin.firestore.FieldValue.serverTimestamp();
+    }
+
+    // Update status
+    await db.collection("bookings").doc(bookingId).update(updateData);
 
     // Send notification if status changed (don't await - fire and forget)
     if (oldStatus !== status) {
@@ -536,13 +548,16 @@ export const updatePaymentStatus = async (
     if (bookingData.paymentStatus !== paymentStatus) {
       const { sendPaymentStatusNotification } = await import("./notificationService");
       // Fire and forget - don't block payment update if notification fails
-      sendPaymentStatusNotification(
-        bookingData.userId,
-        bookingId,
-        paymentStatus
-      ).catch((err) => {
-        console.error("Failed to send payment status notification:", err);
-      });
+      // Only send notification for valid statuses (paid, unpaid, pending)
+      if (paymentStatus === "paid" || paymentStatus === "pending") {
+        sendPaymentStatusNotification(
+          bookingData.userId,
+          bookingId,
+          paymentStatus === "paid" ? "paid" : "pending"
+        ).catch((err) => {
+          console.error("Failed to send payment status notification:", err);
+        });
+      }
     }
 
     // If booking status changed from PendingPayment to Created, send booking status notification
@@ -749,6 +764,7 @@ export const getBookingStatistics = async (): Promise<{
       Picked: 0,
       Shipped: 0,
       Delivered: 0,
+      Returned: 0,
     };
 
     const byPaymentStatus: Record<PaymentStatus, number> = {

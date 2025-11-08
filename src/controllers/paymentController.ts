@@ -90,15 +90,15 @@ export const createPaymentPage = async (
     const failedUrl = `${failedBaseUrl}/api/payments/failed?merchantRefId=${encodeURIComponent(merchantReferenceId)}`;
 
     // Create payment page via Paygic
-    const paymentPage = await paygicService.createPaymentPage({
+    const paymentPage = await paygicService.createPaymentPage(
       merchantReferenceId,
-      amount: fare,
+      fare,
+      customerMobile,
       customerName,
       customerEmail,
-      customerMobile,
       successUrl,
-      failedUrl,
-    });
+      failedUrl
+    );
 
     // Store booking data temporarily if this is a new booking (for webhook to create it)
     if (bookingData && !bookingId) {
@@ -112,11 +112,11 @@ export const createPaymentPage = async (
     res.json({
       success: true,
       data: {
-        paymentUrl: paymentPage.paymentUrl,
-        merchantReferenceId: paymentPage.merchantReferenceId,
-        paygicReferenceId: paymentPage.paygicReferenceId,
-        expiry: paymentPage.expiry,
-        amount: paymentPage.amount,
+        paymentUrl: paymentPage.data.payPageUrl,
+        merchantReferenceId: paymentPage.data.merchantReferenceId,
+        paygicReferenceId: paymentPage.data.paygicReferenceId,
+        expiry: paymentPage.data.expiry,
+        amount: paymentPage.data.amount,
       },
     });
   } catch (error: any) {

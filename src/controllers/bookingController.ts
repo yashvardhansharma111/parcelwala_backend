@@ -122,7 +122,7 @@ export const getUserBookings = async (
       console.error(`[getUserBookings] SECURITY WARNING: Found ${invalidBookings.length} bookings not belonging to user ${userId}`);
       // Filter out invalid bookings
       const validBookings = result.bookings.filter((b) => b.userId === userId);
-      return res.json({
+      res.json({
         success: true,
         data: {
           bookings: validBookings,
@@ -130,6 +130,7 @@ export const getUserBookings = async (
           lastDocId: validBookings.length > 0 ? validBookings[validBookings.length - 1].id : undefined,
         },
       });
+      return;
     }
 
     console.log(`[getUserBookings] Returning ${result.bookings.length} bookings for user: ${userId}, hasMore: ${result.hasMore}`);
@@ -201,7 +202,7 @@ export const updateBookingStatus = async (
 ): Promise<void> => {
   try {
     const { id } = req.params;
-    const { status } = req.body;
+    const { status, returnReason } = req.body;
     const userId = req.user!.uid;
     const userRole = req.user!.role;
 
