@@ -368,25 +368,25 @@ export const sendBookingStatusNotification = async (
 ): Promise<void> => {
   try {
     const statusMessages: Record<BookingStatus, { title: string; body: string }> = {
-      Pending: {
+      PendingPayment: {
         title: "Booking Created",
-        body: `Your booking ${trackingNumber || bookingId} has been created and is pending confirmation.`,
+        body: `Your booking ${trackingNumber || bookingId} has been created and is pending payment.`,
       },
-      Confirmed: {
+      Created: {
         title: "Booking Confirmed",
         body: `Your booking ${trackingNumber || bookingId} has been confirmed and is ready for pickup.`,
       },
-      "In Transit": {
+      Picked: {
+        title: "Parcel Picked Up",
+        body: `Your parcel ${trackingNumber || bookingId} has been picked up and is on its way.`,
+      },
+      Shipped: {
         title: "Parcel In Transit",
         body: `Your parcel ${trackingNumber || bookingId} is now in transit to the destination.`,
       },
       Delivered: {
         title: "Parcel Delivered",
         body: `Your parcel ${trackingNumber || bookingId} has been delivered successfully!`,
-      },
-      Cancelled: {
-        title: "Booking Cancelled",
-        body: `Your booking ${trackingNumber || bookingId} has been cancelled.`,
       },
       Returned: {
         title: "Parcel Returned",
@@ -414,5 +414,46 @@ export const sendBookingStatusNotification = async (
   } catch (error: any) {
     // Don't throw error - notification failure shouldn't break booking flow
     console.error("Error sending booking status notification:", error);
+  }
+};
+
+/**
+ * Send payment status notification
+ */
+export const sendPaymentStatusNotification = async (
+  userId: string,
+  bookingId: string,
+  paymentStatus: "paid" | "pending"
+): Promise<void> => {
+  try {
+    const statusMessages: Record<"paid" | "pending", { title: string; body: string }> = {
+      paid: {
+        title: "Payment Received",
+        body: `Your payment for booking ${bookingId} has been received successfully.`,
+      },
+      pending: {
+        title: "Payment Pending",
+        body: `Your payment for booking ${bookingId} is still pending. Please complete the payment.`,
+      },
+    };
+
+    const message = statusMessages[paymentStatus];
+    if (!message) {
+      console.warn(`No notification message for payment status: ${paymentStatus}`);
+      return;
+    }
+
+    await sendNotificationToUser(userId, {
+      title: message.title,
+      body: message.body,
+      data: {
+        type: "payment_status_update",
+        bookingId,
+        paymentStatus,
+      },
+    });
+  } catch (error: any) {
+    // Don't throw error - notification failure shouldn't break payment flow
+    console.error("Error sending payment status notification:", error);
   }
 };

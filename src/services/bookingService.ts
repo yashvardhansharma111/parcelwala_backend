@@ -194,6 +194,11 @@ export interface Booking {
   paymentStatus: PaymentStatus;
   paymentMethod?: PaymentMethod; // Added payment method
   fare?: number;
+  deliveryType?: string; // Added delivery type
+  deliveryDate?: Date; // Added delivery date
+  podSignature?: string; // Proof of delivery signature
+  podSignedBy?: string; // Who signed the POD
+  podSignedAt?: Date; // When POD was signed
   createdAt: Date;
   updatedAt: Date;
   trackingNumber?: string;
@@ -682,7 +687,7 @@ export const updatePaymentStatus = async (
           bookingData.userId,
           bookingId,
           paymentStatus === "paid" ? "paid" : "pending"
-        ).catch((err) => {
+        ).catch((err: any) => {
           console.error("Failed to send payment status notification:", err);
         });
       }
