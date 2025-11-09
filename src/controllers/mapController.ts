@@ -88,7 +88,7 @@ export const calculateBookingFare = async (
 
     // Check if cities are provided and try to get city route pricing
     if (pickupCity && dropCity) {
-      const { getCityRoute } = await import("../services/cityService");
+      const { getCityRoute } = await import("../services/cityService.js");
       try {
         // getCityRoute now handles bidirectional matching internally
         const cityRoute = await getCityRoute(pickupCity.trim(), dropCity.trim());
@@ -117,7 +117,7 @@ export const calculateBookingFare = async (
           let couponApplied = undefined;
           
           if (req.body.couponCode) {
-            const { validateCoupon } = await import("../services/couponService");
+            const { validateCoupon } = await import("../services/couponService.js");
             try {
               const couponResult = await validateCoupon(req.body.couponCode, totalFare);
               if (couponResult.isValid && couponResult.coupon) {
@@ -207,7 +207,7 @@ export const calculateBookingFare = async (
     let couponApplied = undefined;
     
     if (req.body.couponCode) {
-      const { validateCoupon } = await import("../services/couponService");
+      const { validateCoupon } = await import("../services/couponService.js");
       try {
         const couponResult = await validateCoupon(req.body.couponCode, fareCalculation.totalFare);
         if (couponResult.isValid && couponResult.coupon) {

@@ -629,7 +629,7 @@ export const updateBookingStatus = async (
 
     // Send notification if status changed (don't await - fire and forget)
     if (oldStatus !== status) {
-      const { sendBookingStatusNotification } = await import("./notificationService");
+      const { sendBookingStatusNotification } = await import("./notificationService.js");
       // Fire and forget - don't block booking update if notification fails
       sendBookingStatusNotification(
         bookingData.userId,
@@ -679,7 +679,7 @@ export const updatePaymentStatus = async (
 
     // Send notifications (don't await - fire and forget)
     if (bookingData.paymentStatus !== paymentStatus) {
-      const { sendPaymentStatusNotification } = await import("./notificationService");
+      const { sendPaymentStatusNotification } = await import("./notificationService.js");
       // Fire and forget - don't block payment update if notification fails
       // Only send notification for valid statuses (paid, unpaid, pending)
       if (paymentStatus === "paid" || paymentStatus === "pending") {
@@ -695,7 +695,7 @@ export const updatePaymentStatus = async (
 
     // If booking status changed from PendingPayment to Created, send booking status notification
     if (statusChanged) {
-      const { sendBookingStatusNotification } = await import("./notificationService");
+      const { sendBookingStatusNotification } = await import("./notificationService.js");
       // Fire and forget - don't block payment update if notification fails
       sendBookingStatusNotification(
         bookingData.userId,
