@@ -79,11 +79,81 @@ export const calculateBookingFare = async (
   next: NextFunction
 ): Promise<void> => {
   try {
-    const { pickup, drop, weight, pickupPincode, dropPincode } = req.body;
+    const { pickup, drop, weight, pickupPincode, dropPincode, pickupCity, dropCity } = req.body;
 
     // Validate weight
     if (typeof weight !== "number" || weight <= 0) {
       throw createError("Weight must be a positive number", 400);
+    }
+
+    // Check if cities are provided and try to get city route pricing
+    if (pickupCity && dropCity) {
+      const { getCityRoute } = await import("../services/cityService");
+      try {
+        // getCityRoute now handles bidirectional matching internally
+        const cityRoute = await getCityRoute(pickupCity.trim(), dropCity.trim());
+
+        if (cityRoute) {
+          console.log(`[Fare Calculation] Found city route: ${pickupCity} -> ${dropCity}, baseFare: ${cityRoute.baseFare}, heavyFare: ${cityRoute.heavyFare}, weight: ${weight}`);
+          // Use city route pricing
+          const gstPercent = cityRoute.gstPercent || 18;
+          let baseFare: number;
+          
+          if (weight <= 3) {
+            baseFare = cityRoute.baseFare;
+          } else if (weight >= 5) {
+            baseFare = cityRoute.heavyFare;
+          } else {
+            // Weight between 3 and 5 kg - use heavy fare (higher tier)
+            baseFare = cityRoute.heavyFare;
+          }
+          
+          const gst = Math.round((baseFare * gstPercent) / 100);
+          const totalFare = baseFare + gst;
+          
+          // Apply coupon if provided
+          let finalFare = totalFare;
+          let discountAmount = 0;
+          let couponApplied = undefined;
+          
+          if (req.body.couponCode) {
+            const { validateCoupon } = await import("../services/couponService");
+            try {
+              const couponResult = await validateCoupon(req.body.couponCode, totalFare);
+              if (couponResult.isValid && couponResult.coupon) {
+                discountAmount = couponResult.discountAmount;
+                finalFare = totalFare - discountAmount;
+                couponApplied = {
+                  code: couponResult.coupon.code,
+                  discountAmount: discountAmount,
+                };
+              }
+            } catch (error) {
+              // Coupon validation failed, ignore
+              console.error("Coupon validation error:", error);
+            }
+          }
+          
+          res.json({
+            success: true,
+            data: {
+              distanceInKm: 0, // Not applicable for fixed route pricing
+              baseFare,
+              gst,
+              totalFare,
+              finalFare,
+              discountAmount,
+              couponApplied,
+            },
+          });
+          return;
+        }
+      } catch (error) {
+        console.error("Error getting city route:", error);
+        // Fall through to standard pricing if city route not found
+      }
+    } else {
+      console.log(`[Fare Calculation] No city route check - pickupCity: ${pickupCity}, dropCity: ${dropCity}`);
     }
 
     let distanceInKm: number;
@@ -128,12 +198,40 @@ export const calculateBookingFare = async (
       }
     }
 
-    // Calculate fare
+    // Calculate fare using standard pricing
     const fareCalculation = await calculateFare(distanceInKm, weight);
+    
+    // Apply coupon if provided
+    let finalFare = fareCalculation.totalFare;
+    let discountAmount = 0;
+    let couponApplied = undefined;
+    
+    if (req.body.couponCode) {
+      const { validateCoupon } = await import("../services/couponService");
+      try {
+        const couponResult = await validateCoupon(req.body.couponCode, fareCalculation.totalFare);
+        if (couponResult.isValid && couponResult.coupon) {
+          discountAmount = couponResult.discountAmount;
+          finalFare = fareCalculation.totalFare - discountAmount;
+          couponApplied = {
+            code: couponResult.coupon.code,
+            discountAmount: discountAmount,
+          };
+        }
+      } catch (error) {
+        // Coupon validation failed, ignore
+        console.error("Coupon validation error:", error);
+      }
+    }
 
     res.json({
       success: true,
-      data: fareCalculation,
+      data: {
+        ...fareCalculation,
+        finalFare,
+        discountAmount,
+        couponApplied,
+      },
     });
   } catch (error: any) {
     next(error);

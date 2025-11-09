@@ -1,7 +1,6 @@
 /**
  * Notification Service
- * Handles push notifications using Expo Push Notifications API
- * No Firebase/FCM required - uses Expo's HTTP API
+ * Handles push notifications using OneSignal (Free & Easy)
  */
 
 import axios from "axios";
@@ -9,6 +8,7 @@ import * as admin from "firebase-admin";
 import { db } from "../config/firebase";
 import { createError } from "../utils/errorHandler";
 import { BookingStatus } from "./bookingService";
+import { AppCreds } from "../config/creds";
 
 interface NotificationData {
   title: string;
@@ -16,121 +16,343 @@ interface NotificationData {
   data?: any;
 }
 
-interface ExpoPushMessage {
-  to: string;
-  sound?: string;
-  title?: string;
-  body?: string;
-  data?: any;
-  badge?: number;
-  priority?: "default" | "normal" | "high";
-  channelId?: string;
-}
-
-interface ExpoPushResponse {
-  data: Array<{
-    status: "ok" | "error";
-    id?: string;
-    message?: string;
-    details?: any;
-  }>;
-}
+/**
+ * OneSignal API endpoints
+ */
+const ONESIGNAL_API_URL = "https://onesignal.com/api/v1/notifications";
+const ONESIGNAL_PLAYERS_API_URL = "https://onesignal.com/api/v1/players";
 
 /**
- * Expo Push API endpoint
+ * Create or update OneSignal player with external user ID
+ * This registers the user in OneSignal so we can send notifications
+ * 
+ * IMPORTANT: OneSignal requires users to be registered before sending notifications
+ * We'll create a "placeholder" player with just the external user ID
+ * The actual push token will be registered when the OneSignal SDK is used
  */
-const EXPO_PUSH_API_URL = "https://exp.host/--/api/v2/push/send";
+const createOrUpdateOneSignalPlayer = async (
+  userId: string,
+  pushToken: string,
+  platform: "ios" | "android" = "android"
+): Promise<void> => {
+  try {
+    if (!AppCreds.onesignal.appId || !AppCreds.onesignal.restApiKey) {
+      console.warn("OneSignal credentials not configured, skipping player registration");
+      return;
+    }
+
+    // Check if this is an Expo Push Token
+    const isExpoToken = pushToken.startsWith("ExponentPushToken[");
+    
+    if (isExpoToken) {
+      // Expo Push Tokens can't be used directly with OneSignal REST API
+      // OneSignal needs native FCM/APNS tokens
+      // However, we can still create a player with just the external user ID
+      // The player will be "unsubscribed" until the OneSignal SDK registers it properly
+      
+      console.log(`📝 Creating OneSignal player for user ${userId} with external user ID only`);
+      console.log(`⚠️ Note: Expo Push Token detected. Player will need OneSignal SDK to be fully subscribed.`);
+      
+      // Try to create a player with external user ID
+      // This will at least register the user in OneSignal's system
+      try {
+        const playerData: any = {
+          app_id: AppCreds.onesignal.appId,
+          external_user_id: userId, // Link Firebase UID as external user ID
+          device_type: platform === "ios" ? 0 : 1, // 0 = iOS, 1 = Android
+          // Note: We can't provide identifier (FCM token) because we only have Expo token
+          // This player will be "unsubscribed" until OneSignal SDK registers it
+        };
+
+        const response = await axios.post(
+          ONESIGNAL_PLAYERS_API_URL,
+          playerData,
+          {
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Basic ${AppCreds.onesignal.restApiKey}`,
+            },
+            timeout: 10000,
+          }
+        );
+
+        if (response.data.id) {
+          console.log(`✅ OneSignal player created/updated for user ${userId}:`, response.data.id);
+        } else {
+          console.warn(`⚠️ OneSignal player creation returned no ID for user ${userId}`);
+        }
+      } catch (apiError: any) {
+        // If player already exists, try to update it
+        if (apiError.response?.status === 400) {
+          console.log(`📝 Player might already exist for user ${userId}, attempting update...`);
+          // OneSignal will auto-update when we send notifications with external_user_id
+        } else {
+          console.error("Error creating OneSignal player:", apiError.response?.data || apiError.message);
+        }
+      }
+    } else {
+      // This might be a native FCM token or OneSignal Player ID
+      console.log(`📝 Registering native token for user ${userId}`);
+      // For native tokens, we could create a proper player
+      // But for now, we'll just use external user IDs
+    }
+    
+  } catch (error: any) {
+    console.error("Error in createOrUpdateOneSignalPlayer:", error);
+    // Don't throw - this is not critical, notifications might still work
+  }
+};
 
 /**
- * Get user's Expo Push Token
+ * Save push token for user (can be OneSignal Player ID or Expo Push Token)
+ * We'll use external user IDs with OneSignal, so we just need to store the user ID
  */
-const getUserExpoPushToken = async (userId: string): Promise<string | null> => {
+export const saveFCMToken = async (
+  userId: string,
+  token: string
+): Promise<void> => {
+  try {
+    // Validate token format
+    if (!token || typeof token !== "string" || token.length < 10) {
+      throw createError("Invalid token format", 400);
+    }
+
+    console.log(`📝 Saving push token for user ${userId}:`, {
+      tokenPrefix: token.substring(0, 20) + "...",
+      tokenLength: token.length,
+    });
+
+    // Store token (we'll use userId as external ID for OneSignal)
+    await db.collection("users").doc(userId).update({
+      pushToken: token, // Store any token format
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    console.log(`✅ Push token saved for user: ${userId}`);
+    
+    // Try to register with OneSignal (non-blocking)
+    await createOrUpdateOneSignalPlayer(userId, token);
+  } catch (error: any) {
+    console.error("Error saving push token:", error);
+    throw createError("Failed to save push token", 500);
+  }
+};
+
+/**
+ * Get user's OneSignal Player ID from Firestore
+ */
+const getUserOneSignalPlayerId = async (userId: string): Promise<string | null> => {
   try {
     const userDoc = await db.collection("users").doc(userId).get();
     if (!userDoc.exists) {
       return null;
     }
     const userData = userDoc.data();
-    return userData?.expoPushToken || null;
+    // Check for oneSignalPlayerId (from SDK) or pushToken (fallback)
+    return userData?.oneSignalPlayerId || userData?.pushToken || null;
   } catch (error) {
-    console.error("Error getting Expo Push token:", error);
+    console.error("Error getting OneSignal Player ID:", error);
     return null;
   }
 };
 
 /**
- * Save Expo Push Token for user
+ * Send notification via OneSignal using Player IDs or external user IDs
  */
-export const saveExpoPushToken = async (
-  userId: string,
-  token: string
-): Promise<void> => {
+const sendOneSignalNotification = async (
+  playerIdsOrExternalIds: string[],
+  notification: NotificationData,
+  useExternalIds: boolean = false
+): Promise<{ sent: number; failed: number }> => {
   try {
-    // Validate token format (Expo push tokens start with ExponentPushToken or ExpoPushToken)
-    if (!token.startsWith("ExponentPushToken[") && !token.startsWith("ExpoPushToken[")) {
-      throw createError("Invalid Expo Push Token format", 400);
+    if (!AppCreds.onesignal.appId || !AppCreds.onesignal.restApiKey) {
+      throw createError("OneSignal credentials not configured", 500);
     }
 
-    await db.collection("users").doc(userId).update({
-      expoPushToken: token,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
-  } catch (error: any) {
-    console.error("Error saving Expo Push token:", error);
-    throw createError("Failed to save Expo Push token", 500);
-  }
-};
-
-/**
- * Send push notification via Expo Push API
- */
-const sendExpoNotification = async (
-  token: string,
-  notification: NotificationData
-): Promise<void> => {
-  try {
-    const message: ExpoPushMessage = {
-      to: token,
-      sound: "default",
-      title: notification.title,
-      body: notification.body,
-      data: notification.data || {},
-      priority: "high",
-      badge: 1,
+    const message: any = {
+      app_id: AppCreds.onesignal.appId,
+      headings: { en: notification.title || "Notification" },
+      contents: { en: notification.body || "" },
+      data: {
+        ...(notification.data || {}),
+        title: notification.title,
+        body: notification.body,
+      },
+      priority: 10, // High priority
     };
 
-    const response = await axios.post<ExpoPushResponse>(
-      EXPO_PUSH_API_URL,
+    // Use Player IDs if available, otherwise fall back to external user IDs
+    if (useExternalIds) {
+      message.include_external_user_ids = playerIdsOrExternalIds;
+    } else {
+      message.include_player_ids = playerIdsOrExternalIds;
+    }
+
+    // Only add android_channel_id if it exists in OneSignal
+    // For now, we'll let OneSignal use the default channel
+    // If you create a custom channel in OneSignal dashboard, add it here:
+    // message.android_channel_id = "your-channel-id";
+
+    console.log(`📤 Sending OneSignal notification to ${playerIdsOrExternalIds.length} users:`, {
+      title: notification.title,
+      body: notification.body,
+      method: useExternalIds ? "external_user_ids" : "player_ids",
+    });
+
+    const response = await axios.post(
+      ONESIGNAL_API_URL,
       message,
       {
         headers: {
           "Content-Type": "application/json",
-          Accept: "application/json",
-          "Accept-Encoding": "gzip, deflate",
+          Authorization: `Basic ${AppCreds.onesignal.restApiKey}`,
         },
-        timeout: 10000, // 10 second timeout
+        timeout: 10000,
       }
     );
 
-    if (response.data.data && response.data.data[0]) {
-      const result = response.data.data[0];
-      if (result.status === "ok") {
-        console.log("✅ Expo notification sent successfully:", result.id);
+    // Check response for errors
+    if (response.data.errors && response.data.errors.length > 0) {
+      console.error("❌ OneSignal API Errors:", response.data.errors);
+      // Log full response for debugging
+      console.error("📋 Full OneSignal Response:", JSON.stringify(response.data, null, 2));
+      return { sent: 0, failed: playerIdsOrExternalIds.length };
+    }
+
+    if (response.data.id) {
+      console.log("✅ OneSignal notification sent successfully:", response.data.id);
+      console.log("📊 Response:", {
+        id: response.data.id,
+        recipients: response.data.recipients,
+        errors: response.data.errors,
+      });
+      
+      // Check actual recipients count
+      const actualRecipients = response.data.recipients || 0;
+      const failed = playerIdsOrExternalIds.length - actualRecipients;
+      
+      return { sent: actualRecipients, failed };
+    }
+
+    return { sent: 0, failed: playerIdsOrExternalIds.length };
+  } catch (error: any) {
+    console.error("❌ Error sending OneSignal notification:", error);
+    if (error.response?.data) {
+      console.error("OneSignal API Error Response:", JSON.stringify(error.response.data, null, 2));
+    } else {
+      console.error("Error details:", error.message);
+    }
+    throw createError(`Failed to send notification: ${error.message || "Unknown error"}`, 500);
+  }
+};
+
+/**
+ * Send notification to specific user
+ * Tries Player ID first, falls back to external user ID
+ */
+export const sendNotificationToUser = async (
+  userId: string,
+  notification: NotificationData
+): Promise<void> => {
+  try {
+    // Try to get Player ID first
+    const playerId = await getUserOneSignalPlayerId(userId);
+    
+    if (playerId) {
+      // Use Player ID if available (from OneSignal SDK)
+      console.log(`📤 Sending to user ${userId} using Player ID`);
+      await sendOneSignalNotification([playerId], notification, false);
+    } else {
+      // Fall back to external user ID (Firebase UID)
+      console.log(`📤 Sending to user ${userId} using external user ID`);
+      await sendOneSignalNotification([userId], notification, true);
+    }
+  } catch (error: any) {
+    console.error("Error sending notification to user:", error);
+    throw error;
+  }
+};
+
+/**
+ * Broadcast notification to all users with OneSignal Player IDs
+ */
+/**
+ * Broadcast notification to all users
+ * Uses Player IDs when available, falls back to external user IDs
+ */
+export const broadcastNotification = async (
+  notification: NotificationData
+): Promise<{ sent: number; failed: number; total: number }> => {
+  try {
+    // Get all users
+    const usersSnapshot = await db.collection("users").get();
+
+    console.log(`[broadcastNotification] Found ${usersSnapshot.size} users`);
+
+    if (usersSnapshot.empty) {
+      console.warn("[broadcastNotification] No users found.");
+      return { sent: 0, failed: 0, total: 0 };
+    }
+
+    // Separate users with Player IDs and those without
+    const playerIds: string[] = [];
+    const externalUserIds: string[] = [];
+
+    usersSnapshot.docs.forEach((doc) => {
+      const userData = doc.data();
+      const playerId = userData?.oneSignalPlayerId || userData?.pushToken;
+      
+      if (playerId && playerId.length > 20) {
+        // Likely a Player ID (UUID format)
+        playerIds.push(playerId);
       } else {
-        console.error("❌ Expo notification error:", result.message, result.details);
-        // Handle invalid token errors
-        if (result.details?.error === "DeviceNotRegistered" || 
-            result.details?.error === "InvalidCredentials") {
-          console.log("⚠️ Invalid Expo Push token detected");
+        // Use external user ID (Firebase UID)
+        externalUserIds.push(doc.id);
+      }
+    });
+
+    console.log(`[broadcastNotification] ${playerIds.length} users with Player IDs, ${externalUserIds.length} with external IDs`);
+
+    let totalSent = 0;
+    let totalFailed = 0;
+    const batchSize = 2000;
+
+    // Send to users with Player IDs first (more reliable)
+    if (playerIds.length > 0) {
+      for (let i = 0; i < playerIds.length; i += batchSize) {
+        const batch = playerIds.slice(i, i + batchSize);
+        try {
+          const result = await sendOneSignalNotification(batch, notification, false);
+          totalSent += result.sent;
+          totalFailed += result.failed;
+          console.log(`Batch (Player IDs) ${Math.floor(i / batchSize) + 1}: ${result.sent} sent, ${result.failed} failed`);
+        } catch (error: any) {
+          console.error(`❌ Error sending Player ID batch ${Math.floor(i / batchSize) + 1}:`, error);
+          totalFailed += batch.length;
         }
       }
     }
-  } catch (error: any) {
-    console.error("❌ Error sending Expo notification:", error);
-    if (error.response?.data) {
-      console.error("Expo API Error Response:", error.response.data);
+
+    // Send to users with external IDs (fallback)
+    if (externalUserIds.length > 0) {
+      for (let i = 0; i < externalUserIds.length; i += batchSize) {
+        const batch = externalUserIds.slice(i, i + batchSize);
+        try {
+          const result = await sendOneSignalNotification(batch, notification, true);
+          totalSent += result.sent;
+          totalFailed += result.failed;
+          console.log(`Batch (External IDs) ${Math.floor(i / batchSize) + 1}: ${result.sent} sent, ${result.failed} failed`);
+        } catch (error: any) {
+          console.error(`❌ Error sending External ID batch ${Math.floor(i / batchSize) + 1}:`, error);
+          totalFailed += batch.length;
+        }
+      }
     }
-    // Don't throw error - notification failure shouldn't break the flow
+
+    return { sent: totalSent, failed: totalFailed, total: usersSnapshot.size };
+  } catch (error: any) {
+    console.error("Error broadcasting notification:", error);
+    throw createError("Failed to broadcast notification", 500);
   }
 };
 
@@ -145,211 +367,52 @@ export const sendBookingStatusNotification = async (
   newStatus: BookingStatus
 ): Promise<void> => {
   try {
-    const token = await getUserExpoPushToken(userId);
-    if (!token) {
-      console.log("No Expo Push token found for user:", userId);
+    const statusMessages: Record<BookingStatus, { title: string; body: string }> = {
+      Pending: {
+        title: "Booking Created",
+        body: `Your booking ${trackingNumber || bookingId} has been created and is pending confirmation.`,
+      },
+      Confirmed: {
+        title: "Booking Confirmed",
+        body: `Your booking ${trackingNumber || bookingId} has been confirmed and is ready for pickup.`,
+      },
+      "In Transit": {
+        title: "Parcel In Transit",
+        body: `Your parcel ${trackingNumber || bookingId} is now in transit to the destination.`,
+      },
+      Delivered: {
+        title: "Parcel Delivered",
+        body: `Your parcel ${trackingNumber || bookingId} has been delivered successfully!`,
+      },
+      Cancelled: {
+        title: "Booking Cancelled",
+        body: `Your booking ${trackingNumber || bookingId} has been cancelled.`,
+      },
+      Returned: {
+        title: "Parcel Returned",
+        body: `Your parcel ${trackingNumber || bookingId} has been returned.`,
+      },
+    };
+
+    const message = statusMessages[newStatus];
+    if (!message) {
+      console.warn(`No notification message for status: ${newStatus}`);
       return;
     }
 
-    const statusMessages: { [key in BookingStatus]?: string } = {
-      "Created": "Your booking has been confirmed!",
-      "Picked": "Your parcel has been picked up!",
-      "Shipped": "Your parcel is now in transit!",
-      "Delivered": "Your parcel has been delivered!",
-      "PendingPayment": "Waiting for payment confirmation.",
-      "Returned": "Your parcel has been returned.",
-    };
-
-    const title = "Booking Status Update";
-    const body =
-      statusMessages[newStatus] ||
-      `Your booking status has been updated to ${newStatus}.`;
-
-    await sendExpoNotification(token, {
-      title,
-      body,
+    await sendNotificationToUser(userId, {
+      title: message.title,
+      body: message.body,
       data: {
         type: "booking_status_update",
         bookingId,
-        trackingNumber: trackingNumber || "",
+        trackingNumber,
         oldStatus,
         newStatus,
       },
     });
   } catch (error: any) {
+    // Don't throw error - notification failure shouldn't break booking flow
     console.error("Error sending booking status notification:", error);
-    // Don't throw - notification failure shouldn't break booking update
-  }
-};
-
-/**
- * Send payment status notification
- */
-export const sendPaymentStatusNotification = async (
-  userId: string,
-  bookingId: string,
-  paymentStatus: "paid" | "unpaid" | "pending"
-): Promise<void> => {
-  try {
-    const token = await getUserExpoPushToken(userId);
-    if (!token) {
-      console.log("No Expo Push token found for user:", userId);
-      return;
-    }
-
-    const messages: { [key: string]: string } = {
-      paid: "Your payment has been confirmed!",
-      unpaid: "Payment is pending for your booking.",
-      pending: "Your payment is being processed.",
-    };
-
-    await sendExpoNotification(token, {
-      title: "Payment Update",
-      body: messages[paymentStatus] || "Your payment status has been updated.",
-      data: {
-        type: "payment_status_update",
-        bookingId,
-        paymentStatus,
-      },
-    });
-  } catch (error: any) {
-    console.error("Error sending payment notification:", error);
-  }
-};
-
-/**
- * Send notification to specific user
- */
-export const sendNotificationToUser = async (
-  userId: string,
-  notification: NotificationData
-): Promise<void> => {
-  try {
-    const token = await getUserExpoPushToken(userId);
-    if (!token) {
-      throw createError("User does not have Expo Push token registered", 404);
-    }
-
-    await sendExpoNotification(token, notification);
-  } catch (error: any) {
-    console.error("Error sending notification to user:", error);
-    throw error;
-  }
-};
-
-/**
- * Broadcast notification to all users with Expo Push tokens
- */
-export const broadcastNotification = async (
-  notification: NotificationData
-): Promise<{ sent: number; failed: number; total: number }> => {
-  try {
-    // Get all users with Expo Push tokens
-    const usersSnapshot = await db
-      .collection("users")
-      .where("expoPushToken", "!=", null)
-      .get();
-
-    if (usersSnapshot.empty) {
-      return { sent: 0, failed: 0, total: 0 };
-    }
-
-    const tokens: string[] = [];
-    usersSnapshot.docs.forEach((doc) => {
-      const data = doc.data();
-      if (data.expoPushToken) {
-        tokens.push(data.expoPushToken);
-      }
-    });
-
-    if (tokens.length === 0) {
-      return { sent: 0, failed: 0, total: 0 };
-    }
-
-    // Expo Push API allows up to 100 messages per request
-    const batchSize = 100;
-    let sent = 0;
-    let failed = 0;
-    const invalidTokens: string[] = [];
-
-    for (let i = 0; i < tokens.length; i += batchSize) {
-      const batch = tokens.slice(i, i + batchSize);
-      
-      try {
-        // Prepare messages for batch
-        const messages: ExpoPushMessage[] = batch.map((token) => ({
-          to: token,
-          sound: "default",
-          title: notification.title,
-          body: notification.body,
-          data: notification.data || {},
-          priority: "high",
-          badge: 1,
-        }));
-
-        const response = await axios.post<ExpoPushResponse>(
-          EXPO_PUSH_API_URL,
-          messages,
-          {
-            headers: {
-              "Content-Type": "application/json",
-              Accept: "application/json",
-              "Accept-Encoding": "gzip, deflate",
-            },
-            timeout: 30000, // 30 second timeout for batch
-          }
-        );
-
-        // Process responses
-        if (response.data.data) {
-          response.data.data.forEach((result, idx) => {
-            if (result.status === "ok") {
-              sent++;
-            } else {
-              failed++;
-              // Track invalid tokens
-              if (result.details?.error === "DeviceNotRegistered" || 
-                  result.details?.error === "InvalidCredentials") {
-                invalidTokens.push(batch[idx]);
-              }
-            }
-          });
-        }
-
-        console.log(`Batch ${Math.floor(i / batchSize) + 1}: ${sent} sent, ${failed} failed`);
-      } catch (error: any) {
-        console.error("Error sending batch notification:", error);
-        failed += batch.length;
-      }
-    }
-
-    // Remove invalid tokens from database (fire and forget)
-    if (invalidTokens.length > 0) {
-      db.collection("users")
-        .where("expoPushToken", "in", invalidTokens)
-        .get()
-        .then((snapshot) => {
-          const batch = db.batch();
-          snapshot.docs.forEach((doc) => {
-            batch.update(doc.ref, { expoPushToken: admin.firestore.FieldValue.delete() });
-          });
-          return batch.commit();
-        })
-        .then(() => {
-          console.log(`Removed ${invalidTokens.length} invalid Expo Push tokens from database`);
-        })
-        .catch((err) => {
-          console.error("Error removing invalid tokens:", err);
-        });
-    }
-
-    return {
-      sent,
-      failed,
-      total: tokens.length,
-    };
-  } catch (error: any) {
-    console.error("Error broadcasting notification:", error);
-    throw createError("Failed to broadcast notification", 500);
   }
 };

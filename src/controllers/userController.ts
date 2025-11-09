@@ -5,7 +5,7 @@
 
 import { Request, Response, NextFunction } from "express";
 import { getUserById } from "../services/userService";
-import { saveExpoPushToken } from "../services/notificationService";
+import { saveFCMToken } from "../services/notificationService";
 import { createError } from "../utils/errorHandler";
 
 /**
@@ -43,10 +43,42 @@ export const getProfile = async (
 };
 
 /**
- * Save Expo Push Token for push notifications
- * POST /user/expo-push-token
+ * Save OneSignal Player ID for push notifications
+ * POST /user/onesignal-player-id
  */
-export const saveExpoPushTokenEndpoint = async (
+export const saveOneSignalPlayerIdEndpoint = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    if (!req.user) {
+      throw createError("User not authenticated", 401);
+    }
+
+    const { playerId } = req.body;
+
+    if (!playerId || typeof playerId !== "string") {
+      throw createError("Player ID is required", 400);
+    }
+
+    await saveFCMToken(req.user.uid, playerId);
+
+    res.status(200).json({
+      success: true,
+      message: "OneSignal Player ID saved successfully",
+    });
+  } catch (error: any) {
+    next(error);
+  }
+};
+
+/**
+ * @deprecated Use saveOneSignalPlayerIdEndpoint instead
+ * Save FCM Token for push notifications
+ * POST /user/fcm-token
+ */
+export const saveFCMTokenEndpoint = async (
   req: Request,
   res: Response,
   next: NextFunction
@@ -59,14 +91,14 @@ export const saveExpoPushTokenEndpoint = async (
     const { token } = req.body;
 
     if (!token || typeof token !== "string") {
-      throw createError("Expo Push Token is required", 400);
+      throw createError("FCM Token is required", 400);
     }
 
-    await saveExpoPushToken(req.user.uid, token);
+    await saveFCMToken(req.user.uid, token);
 
     res.status(200).json({
       success: true,
-      message: "Expo Push Token saved successfully",
+      message: "FCM Token saved successfully",
     });
   } catch (error: any) {
     next(error);

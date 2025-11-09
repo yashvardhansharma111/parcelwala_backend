@@ -23,5 +23,9 @@ export const AppCreds = {
   admin: {
     phoneNumber: process.env.ADMIN_PHONE_NUMBER || "+911234567890",
   },
+  onesignal: {
+    appId: process.env.ONESIGNAL_APP_ID || "",
+    restApiKey: process.env.ONESIGNAL_REST_API_KEY || "",
+  },
 };
 

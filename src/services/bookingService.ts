@@ -202,13 +202,37 @@ export interface Booking {
 }
 
 /**
- * Generate a unique tracking number
+ * Generate a unique booking ID in format: PW-DD-MM-YYYY-XXX
+ * Where XXX is a 3-digit unique number for that day
  */
-const generateTrackingNumber = (): string => {
-  const prefix = "PBS";
-  const timestamp = Date.now().toString(36).toUpperCase();
-  const random = Math.random().toString(36).substring(2, 6).toUpperCase();
-  return `${prefix}-${timestamp}-${random}`;
+const generateBookingId = async (): Promise<string> => {
+  const now = new Date();
+  const day = String(now.getDate()).padStart(2, "0");
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const year = now.getFullYear();
+  const dateStr = `${day}-${month}-${year}`;
+  
+  // Get count of bookings created today to generate unique 3-digit number
+  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+  
+  const todayBookings = await db
+    .collection("bookings")
+    .where("createdAt", ">=", admin.firestore.Timestamp.fromDate(startOfDay))
+    .where("createdAt", "<", admin.firestore.Timestamp.fromDate(endOfDay))
+    .get();
+  
+  // Generate 3-digit unique number (001-999)
+  const sequenceNumber = (todayBookings.size + 1).toString().padStart(3, "0");
+  
+  return `PW-${dateStr}-${sequenceNumber}`;
+};
+
+/**
+ * Generate a unique tracking number (using booking ID format)
+ */
+const generateTrackingNumber = async (): Promise<string> => {
+  return await generateBookingId();
 };
 
 /**
@@ -223,10 +247,12 @@ export const createBooking = async (
     fare?: number;
     paymentMethod?: PaymentMethod;
     couponCode?: string;
+    deliveryType?: "sameDay" | "later";
+    deliveryDate?: string;
   }
 ): Promise<Booking> => {
   try {
-    const trackingNumber = generateTrackingNumber();
+    const trackingNumber = await generateTrackingNumber();
     const now = new Date();
 
     // Determine booking status and payment status based on payment method
@@ -268,7 +294,19 @@ export const createBooking = async (
       bookingData_1.couponCode = bookingData.couponCode;
     }
 
-    const bookingRef = db.collection("bookings").doc();
+    // Add delivery type if provided
+    if (bookingData.deliveryType !== undefined && bookingData.deliveryType !== null) {
+      bookingData_1.deliveryType = bookingData.deliveryType;
+    }
+
+    // Add delivery date if provided
+    if (bookingData.deliveryDate !== undefined && bookingData.deliveryDate !== null && bookingData.deliveryDate !== "") {
+      bookingData_1.deliveryDate = admin.firestore.Timestamp.fromDate(new Date(bookingData.deliveryDate));
+    }
+
+    // Generate booking ID and use it as document ID
+    const bookingId = await generateBookingId();
+    const bookingRef = db.collection("bookings").doc(bookingId);
     await bookingRef.set(bookingData_1);
 
     const bookingDoc = await bookingRef.get();
@@ -316,6 +354,11 @@ export const getBookingById = async (bookingId: string): Promise<Booking | null>
       paymentStatus: data.paymentStatus,
       paymentMethod: data.paymentMethod,
       fare: data.fare,
+      deliveryType: data.deliveryType,
+      deliveryDate: data.deliveryDate?.toDate() || data.deliveryDate,
+      podSignature: data.podSignature,
+      podSignedBy: data.podSignedBy,
+      podSignedAt: data.podSignedAt?.toDate() || data.podSignedAt,
       trackingNumber: data.trackingNumber,
       returnReason: data.returnReason,
       returnedAt: data.returnedAt?.toDate(),
@@ -386,7 +429,7 @@ export const getUserBookings = async (
         const sortedDocs = allDocs.docs.sort((a, b) => {
           const aTime = a.data().createdAt?.toMillis() || 0;
           const bTime = b.data().createdAt?.toMillis() || 0;
-          return bTime - aTime;
+        return bTime - aTime;
         });
         
         // Apply pagination manually
@@ -419,6 +462,11 @@ export const getUserBookings = async (
         paymentStatus: data.paymentStatus,
         paymentMethod: data.paymentMethod,
         fare: data.fare,
+        deliveryType: data.deliveryType,
+        deliveryDate: data.deliveryDate?.toDate() || data.deliveryDate,
+        podSignature: data.podSignature,
+        podSignedBy: data.podSignedBy,
+        podSignedAt: data.podSignedAt?.toDate() || data.podSignedAt,
         trackingNumber: data.trackingNumber,
         returnReason: data.returnReason,
         returnedAt: data.returnedAt?.toDate(),
@@ -515,6 +563,11 @@ export const getAllBookings = async (
         paymentStatus: data.paymentStatus,
         paymentMethod: data.paymentMethod,
         fare: data.fare,
+        deliveryType: data.deliveryType,
+        deliveryDate: data.deliveryDate?.toDate() || data.deliveryDate,
+        podSignature: data.podSignature,
+        podSignedBy: data.podSignedBy,
+        podSignedAt: data.podSignedAt?.toDate() || data.podSignedAt,
         trackingNumber: data.trackingNumber,
         returnReason: data.returnReason,
         returnedAt: data.returnedAt?.toDate(),
@@ -656,6 +709,57 @@ export const updatePaymentStatus = async (
 };
 
 /**
+ * Update POD signature (Admin only)
+ */
+export const updatePODSignature = async (
+  bookingId: string,
+  podSignature: string,
+  podSignedBy: string
+): Promise<Booking> => {
+  try {
+    const bookingRef = db.collection("bookings").doc(bookingId);
+    const bookingDoc = await bookingRef.get();
+
+    if (!bookingDoc.exists) {
+      throw createError("Booking not found", 404);
+    }
+
+    await bookingRef.update({
+      podSignature,
+      podSignedBy,
+      podSignedAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    const updatedDoc = await bookingRef.get();
+    const data = updatedDoc.data()!;
+
+    return {
+      id: updatedDoc.id,
+      userId: data.userId,
+      pickup: data.pickup,
+      drop: data.drop,
+      parcelDetails: data.parcelDetails,
+      status: data.status,
+      paymentStatus: data.paymentStatus,
+      paymentMethod: data.paymentMethod,
+      fare: data.fare,
+      deliveryType: data.deliveryType,
+      deliveryDate: data.deliveryDate?.toDate() || data.deliveryDate,
+      podSignature: data.podSignature,
+      podSignedBy: data.podSignedBy,
+      podSignedAt: data.podSignedAt?.toDate() || data.podSignedAt,
+      trackingNumber: data.trackingNumber,
+      createdAt: data.createdAt?.toDate() || new Date(),
+      updatedAt: data.updatedAt?.toDate() || new Date(),
+    };
+  } catch (error: any) {
+    console.error("Error updating POD signature:", error);
+    throw createError("Failed to update POD signature", 500);
+  }
+};
+
+/**
  * Update booking fare (Admin only)
  */
 export const updateFare = async (
@@ -709,7 +813,13 @@ export const getBookingByTrackingNumber = async (
       parcelDetails: data.parcelDetails,
       status: data.status,
       paymentStatus: data.paymentStatus,
+      paymentMethod: data.paymentMethod,
       fare: data.fare,
+      deliveryType: data.deliveryType,
+      deliveryDate: data.deliveryDate?.toDate() || data.deliveryDate,
+      podSignature: data.podSignature,
+      podSignedBy: data.podSignedBy,
+      podSignedAt: data.podSignedAt?.toDate() || data.podSignedAt,
       trackingNumber: data.trackingNumber,
       createdAt: data.createdAt?.toDate() || new Date(),
       updatedAt: data.updatedAt?.toDate() || new Date(),

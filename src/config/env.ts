@@ -18,6 +18,9 @@ export const ENV = {
   // Renflair SMS
   RENFLAIR_API_KEY: process.env.RENFLAIR_API_KEY || "",
   RENFLAIR_API_URL: process.env.RENFLAIR_API_URL || "https://sms.renflair.in/V1.php",
+  // OTP Development Mode: Set to "true" to log OTPs to console instead of sending real SMS
+  // Set to "false" or leave empty to send real SMS (requires RENFLAIR_API_KEY)
+  OTP_DEV_MODE: process.env.OTP_DEV_MODE || "",
 
   // JWT
   JWT_SECRET: process.env.JWT_SECRET || "",
@@ -34,6 +37,10 @@ export const ENV = {
   PAYGIC_BASE_URL: process.env.PAYGIC_BASE_URL || "https://server.paygic.in/api/v2",
   PAYGIC_SUCCESS_URL: process.env.PAYGIC_SUCCESS_URL || "",
   PAYGIC_FAILED_URL: process.env.PAYGIC_FAILED_URL || "",
+
+  // OneSignal Push Notifications
+  ONESIGNAL_APP_ID: process.env.ONESIGNAL_APP_ID || "",
+  ONESIGNAL_REST_API_KEY: process.env.ONESIGNAL_REST_API_KEY || "",
 };
 
 // Log environment variable status (without exposing sensitive values)

@@ -2,6 +2,27 @@
  * OTP Service
  * Handles OTP generation and sending via Renflair SMS API
  * Documentation: https://renflair.in/sms.php
+ * 
+ * ============================================================================
+ * QUICK SWITCH BETWEEN DEV AND PROD MODE
+ * ============================================================================
+ * 
+ * METHOD 1 (Recommended): Use environment variable
+ *   - Add to .env: OTP_DEV_MODE=true  (for development - logs to console)
+ *   - Add to .env: OTP_DEV_MODE=false (for production - sends real SMS)
+ * 
+ * METHOD 2: Use NODE_ENV
+ *   - Set NODE_ENV=development (dev mode - logs to console)
+ *   - Set NODE_ENV=production  (prod mode - sends real SMS)
+ * 
+ * METHOD 3: Force mode in code (see sendOTP function below)
+ *   - Uncomment: const OTP_DEV_MODE = true;  (force dev mode)
+ *   - Uncomment: const OTP_DEV_MODE = false; (force prod mode)
+ * 
+ * METHOD 4: Comment out production SMS code block
+ *   - Comment out the entire "PRODUCTION SMS CODE" section in sendOTP()
+ * 
+ * ============================================================================
  */
 
 import axios from "axios";
@@ -63,8 +84,23 @@ const normalizePhoneNumber = (phoneNumber: string): string => {
 /**
  * Send OTP via Renflair SMS API
  * 
- * Development Mode: Logs OTP to server console (no real SMS sent)
- * Production Mode: Sends real SMS via Renflair API
+ * ============================================================================
+ * DEVELOPMENT vs PRODUCTION MODE
+ * ============================================================================
+ * 
+ * To switch between dev and prod modes, modify the OTP_DEV_MODE check below:
+ * 
+ * DEVELOPMENT MODE (Logs OTP to console - no real SMS sent):
+ *   - Set OTP_DEV_MODE = true in .env OR
+ *   - Set NODE_ENV = "development" OR
+ *   - Comment out the production SMS code block
+ * 
+ * PRODUCTION MODE (Sends real SMS via Renflair API):
+ *   - Set OTP_DEV_MODE = false in .env AND
+ *   - Set NODE_ENV = "production" AND
+ *   - Ensure RENFLAIR_API_KEY is set in .env
+ * 
+ * ============================================================================
  * 
  * API Endpoint: https://sms.renflair.in/V1.php
  * Format: https://sms.renflair.in/V1.php?API={API_KEY}&PHONE={PHONE}&OTP={OTP}
@@ -78,32 +114,73 @@ export const sendOTP = async (phoneNumber: string): Promise<void> => {
     // Normalize phone number for consistent cache key
     const normalizedPhone = normalizePhoneNumber(phoneNumber);
 
-    // Store OTP in cache for 5 minutes (use normalized phone as key)
-    cacheService.setOTP(normalizedPhone, otp, 300);
+    // Store OTP in cache for 10 minutes (use normalized phone as key)
+    cacheService.setOTP(normalizedPhone, otp, 600);
 
     // Extract 10-digit phone number (without country code)
     const phone = extractPhoneNumber(phoneNumber);
 
-    // Validate API key - if not configured, fall back to development mode (logging)
-    const hasApiKey = ENV.RENFLAIR_API_KEY && ENV.RENFLAIR_API_KEY.trim() !== "";
-
-    if (!hasApiKey) {
-      // Development Mode: Log OTP instead of sending real SMS (when API key not configured)
+    // ============================================================================
+    // DEVELOPMENT MODE CHECK - Switch between dev and prod here
+    // ============================================================================
+    // Option 1: Use OTP_DEV_MODE environment variable (recommended)
+    // Set OTP_DEV_MODE=true in .env for development, false for production
+    const OTP_DEV_MODE = process.env.OTP_DEV_MODE === "true" || ENV.NODE_ENV === "development";
+    
+    // Option 2: Force dev mode by uncommenting the line below (overrides env)
+    // const OTP_DEV_MODE = true; // <-- Uncomment this line to force dev mode
+    
+    // Option 3: Force prod mode by uncommenting the line below (overrides env)
+    // const OTP_DEV_MODE = false; // <-- Uncomment this line to force prod mode
+    
+    // ============================================================================
+    // DEVELOPMENT MODE: Log OTP to console (no real SMS sent)
+    // ============================================================================
+    // To enable dev mode: Set OTP_DEV_MODE=true in .env OR uncomment the force line above
+    if (OTP_DEV_MODE) {
       console.log("=".repeat(60));
-      console.log("🔧 DEVELOPMENT MODE - OTP NOT SENT VIA SMS (API Key not configured)");
+      console.log("🔧 DEVELOPMENT MODE - OTP NOT SENT VIA SMS");
       console.log("=".repeat(60));
       console.log(`📱 Phone Number: ${normalizedPhone}`);
       console.log(`🔐 OTP Code: ${otp}`);
-      console.log(`⏰ Valid for: 5 minutes`);
+      console.log(`⏰ Valid for: 10 minutes`);
       console.log("=".repeat(60));
       console.log(`✅ OTP generated and stored in cache with key: ${normalizedPhone}`);
+      console.log(`💡 To enable real SMS (production mode):`);
+      console.log(`   1. Set OTP_DEV_MODE=false in .env`);
+      console.log(`   2. Set RENFLAIR_API_KEY=your_api_key in .env`);
+      console.log(`   3. Set NODE_ENV=production in .env`);
+      console.log("=".repeat(60));
+      return; // Exit early - no SMS sent in dev mode
+    }
+
+    // ============================================================================
+    // PRODUCTION MODE: Send real SMS via Renflair API
+    // ============================================================================
+    // To enable prod mode: Set OTP_DEV_MODE=false in .env AND ensure RENFLAIR_API_KEY is set
+    
+    // Validate API key is configured for production
+    const hasApiKey = ENV.RENFLAIR_API_KEY && ENV.RENFLAIR_API_KEY.trim() !== "";
+    if (!hasApiKey) {
+      console.warn("⚠️  WARNING: RENFLAIR_API_KEY not configured. Falling back to dev mode (logging only).");
+      console.log("=".repeat(60));
+      console.log("🔧 FALLBACK TO DEVELOPMENT MODE - OTP NOT SENT VIA SMS");
+      console.log("=".repeat(60));
+      console.log(`📱 Phone Number: ${normalizedPhone}`);
+      console.log(`🔐 OTP Code: ${otp}`);
+      console.log(`⏰ Valid for: 10 minutes`);
+      console.log("=".repeat(60));
       console.log(`💡 To enable real SMS, set RENFLAIR_API_KEY in your .env file`);
       console.log("=".repeat(60));
       return;
     }
 
-    // Production Mode: Send real SMS via Renflair (when API key is configured)
-
+    // ============================================================================
+    // PRODUCTION SMS CODE - Comment out this entire block to disable SMS sending
+    // ============================================================================
+    // To disable SMS sending (dev mode), comment out from here to the end of the try block
+    // OR set OTP_DEV_MODE=true in .env (recommended method above)
+    
     // Renflair API endpoint for OTP
     const apiUrl = "https://sms.renflair.in/V1.php";
     
@@ -122,6 +199,10 @@ export const sendOTP = async (phoneNumber: string): Promise<void> => {
     const response = await axios.get(fullUrl, {
       timeout: 10000, // 10 second timeout
     });
+    
+    // ============================================================================
+    // End of Production SMS Code
+    // ============================================================================
 
     // Log response for debugging
     console.log("Renflair API Response:", {

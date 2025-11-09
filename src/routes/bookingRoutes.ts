@@ -34,6 +34,7 @@ router.get("/admin/search", requireRole("admin"), bookingController.searchBookin
 router.get("/admin/statistics", requireRole("admin"), bookingController.getBookingStatistics);
 router.patch("/:id/payment-status", requireRole("admin"), bookingController.updatePaymentStatus);
 router.patch("/:id/fare", requireRole("admin"), bookingController.updateFare);
+router.patch("/:id/pod", requireRole("admin"), bookingController.updatePODSignature);
 
 export default router;
 

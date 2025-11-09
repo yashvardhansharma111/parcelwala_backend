@@ -72,6 +72,34 @@ export const createCoupon = async (couponData: {
 
     const now = new Date();
     const couponRef = db.collection("coupons").doc();
+    
+    // Build Firestore document, only including defined optional fields
+    const firestoreData: any = {
+      code: couponData.code.toUpperCase(),
+      discountType: couponData.discountType,
+      discountValue: couponData.discountValue,
+      currentUsage: 0,
+      validFrom: admin.firestore.Timestamp.fromDate(couponData.validFrom),
+      validUntil: admin.firestore.Timestamp.fromDate(couponData.validUntil),
+      isActive: true,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+
+    // Only include optional fields if they are defined (not undefined)
+    if (couponData.minOrderAmount !== undefined && couponData.minOrderAmount !== null) {
+      firestoreData.minOrderAmount = couponData.minOrderAmount;
+    }
+    if (couponData.maxDiscountAmount !== undefined && couponData.maxDiscountAmount !== null) {
+      firestoreData.maxDiscountAmount = couponData.maxDiscountAmount;
+    }
+    if (couponData.maxUsage !== undefined && couponData.maxUsage !== null) {
+      firestoreData.maxUsage = couponData.maxUsage;
+    }
+
+    await couponRef.set(firestoreData);
+
+    // Build return object with Date objects
     const coupon: Omit<Coupon, "id"> = {
       code: couponData.code.toUpperCase(),
       discountType: couponData.discountType,
@@ -86,14 +114,6 @@ export const createCoupon = async (couponData: {
       createdAt: now,
       updatedAt: now,
     };
-
-    await couponRef.set({
-      ...coupon,
-      validFrom: admin.firestore.Timestamp.fromDate(coupon.validFrom),
-      validUntil: admin.firestore.Timestamp.fromDate(coupon.validUntil),
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
 
     return {
       id: couponRef.id,
@@ -213,9 +233,25 @@ export const updateCoupon = async (
 
     if (updates.discountType !== undefined) updateData.discountType = updates.discountType;
     if (updates.discountValue !== undefined) updateData.discountValue = updates.discountValue;
-    if (updates.minOrderAmount !== undefined) updateData.minOrderAmount = updates.minOrderAmount;
-    if (updates.maxDiscountAmount !== undefined) updateData.maxDiscountAmount = updates.maxDiscountAmount;
-    if (updates.maxUsage !== undefined) updateData.maxUsage = updates.maxUsage;
+    // Only include optional fields if they are defined and not null (to allow clearing them)
+    if (updates.minOrderAmount !== undefined && updates.minOrderAmount !== null) {
+      updateData.minOrderAmount = updates.minOrderAmount;
+    } else if (updates.minOrderAmount === null) {
+      // Allow explicitly setting to null to remove the field
+      updateData.minOrderAmount = admin.firestore.FieldValue.delete();
+    }
+    if (updates.maxDiscountAmount !== undefined && updates.maxDiscountAmount !== null) {
+      updateData.maxDiscountAmount = updates.maxDiscountAmount;
+    } else if (updates.maxDiscountAmount === null) {
+      // Allow explicitly setting to null to remove the field
+      updateData.maxDiscountAmount = admin.firestore.FieldValue.delete();
+    }
+    if (updates.maxUsage !== undefined && updates.maxUsage !== null) {
+      updateData.maxUsage = updates.maxUsage;
+    } else if (updates.maxUsage === null) {
+      // Allow explicitly setting to null to remove the field
+      updateData.maxUsage = admin.firestore.FieldValue.delete();
+    }
     if (updates.validFrom !== undefined) updateData.validFrom = admin.firestore.Timestamp.fromDate(updates.validFrom);
     if (updates.validUntil !== undefined) updateData.validUntil = admin.firestore.Timestamp.fromDate(updates.validUntil);
     if (updates.isActive !== undefined) updateData.isActive = updates.isActive;

@@ -18,7 +18,7 @@ export const createBooking = async (
 ): Promise<void> => {
   try {
     const userId = req.user!.uid;
-    const { pickup, drop, parcelDetails, fare, paymentMethod, couponCode } = req.body;
+    const { pickup, drop, parcelDetails, fare, paymentMethod, couponCode, deliveryType, deliveryDate } = req.body;
 
     // Validation
     if (!pickup || !drop || !parcelDetails) {
@@ -49,6 +49,8 @@ export const createBooking = async (
       fare,
       paymentMethod,
       couponCode,
+      deliveryType,
+      deliveryDate,
     });
 
     res.status(201).json({
@@ -384,6 +386,40 @@ export const updateFare = async (
     res.json({
       success: true,
       data: { booking: updatedBooking },
+    });
+  } catch (error: any) {
+    next(error);
+  }
+};
+
+/**
+ * Update POD signature (Admin only)
+ * PATCH /bookings/:id/pod
+ */
+export const updatePODSignature = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const { podSignature, podSignedBy } = req.body;
+    const userRole = req.user!.role;
+
+    if (!podSignature || !podSignedBy) {
+      throw createError("POD signature and signed by name are required", 400);
+    }
+
+    // Only admin can update POD signature
+    if (userRole !== "admin") {
+      throw createError("Unauthorized to update POD signature", 403);
+    }
+
+    const booking = await bookingService.updatePODSignature(id, podSignature, podSignedBy);
+
+    res.json({
+      success: true,
+      data: { booking },
     });
   } catch (error: any) {
     next(error);

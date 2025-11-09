@@ -83,9 +83,11 @@ export const createPaymentPage = async (
       throw createError("Either bookingId or bookingData is required", 400);
     }
 
-    // Construct redirect URLs
+    // Construct redirect URLs - use deep link for mobile app
+    // For mobile apps, PayGIC will redirect to these URLs which should then redirect to app
     const baseUrl = ENV.PAYGIC_SUCCESS_URL || `${req.protocol}://${req.get("host")}`;
     const failedBaseUrl = ENV.PAYGIC_FAILED_URL || baseUrl;
+    // Use deep link scheme for mobile app redirect
     const successUrl = `${baseUrl}/api/payments/success?merchantRefId=${encodeURIComponent(merchantReferenceId)}`;
     const failedUrl = `${failedBaseUrl}/api/payments/failed?merchantRefId=${encodeURIComponent(merchantReferenceId)}`;
 
@@ -312,18 +314,145 @@ export const paymentSuccess = async (
         await bookingService.updatePaymentStatus(bookingId, "paid");
       }
 
-      // Redirect to success page (mobile app will handle this)
-      res.status(200).json({
-        success: true,
-        message: "Payment successful",
-        bookingId,
-        merchantReferenceId: merchantRefId,
-      });
+      // Redirect to mobile app using deep link
+      // Create an HTML page that redirects to the app
+      const deepLinkUrl = `parcelbooking://payment/success?merchantRefId=${encodeURIComponent(merchantRefId as string)}${bookingId ? `&bookingId=${bookingId}` : ""}`;
+      const fallbackUrl = `parcelbooking://payment/success?merchantRefId=${encodeURIComponent(merchantRefId as string)}${bookingId ? `&bookingId=${bookingId}` : ""}`;
+      
+      // Return HTML page that redirects to app
+      res.status(200).send(`
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Payment Successful</title>
+            <style>
+              body {
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                height: 100vh;
+                margin: 0;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                color: white;
+              }
+              .container {
+                text-align: center;
+                padding: 2rem;
+              }
+              .success-icon {
+                font-size: 4rem;
+                margin-bottom: 1rem;
+              }
+              h1 {
+                margin: 0 0 1rem 0;
+              }
+              p {
+                margin: 0.5rem 0;
+                opacity: 0.9;
+              }
+              .button {
+                display: inline-block;
+                margin-top: 1.5rem;
+                padding: 0.75rem 2rem;
+                background: white;
+                color: #667eea;
+                text-decoration: none;
+                border-radius: 8px;
+                font-weight: 600;
+              }
+            </style>
+            <script>
+              // Try to open app immediately
+              window.location.href = "${deepLinkUrl}";
+              
+              // Fallback: If app doesn't open, show message
+              setTimeout(function() {
+                document.getElementById('message').innerHTML = 
+                  '<p>If the app doesn\'t open automatically, <a href="${fallbackUrl}" class="button">Click here</a></p>';
+              }, 1000);
+            </script>
+          </head>
+          <body>
+            <div class="container">
+              <div class="success-icon">✓</div>
+              <h1>Payment Successful!</h1>
+              <p>Redirecting to app...</p>
+              <div id="message"></div>
+            </div>
+          </body>
+        </html>
+      `);
     } else {
-      // Redirect to failed page
-      res.redirect(
-        `/api/payments/failed?merchantRefId=${merchantRefId}`
-      );
+      // Redirect to failed page with deep link
+      const deepLinkUrl = `parcelbooking://payment/failed?merchantRefId=${encodeURIComponent(merchantRefId as string)}`;
+      res.status(200).send(`
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Payment Failed</title>
+            <style>
+              body {
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                height: 100vh;
+                margin: 0;
+                background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+                color: white;
+              }
+              .container {
+                text-align: center;
+                padding: 2rem;
+              }
+              .error-icon {
+                font-size: 4rem;
+                margin-bottom: 1rem;
+              }
+              h1 {
+                margin: 0 0 1rem 0;
+              }
+              p {
+                margin: 0.5rem 0;
+                opacity: 0.9;
+              }
+              .button {
+                display: inline-block;
+                margin-top: 1.5rem;
+                padding: 0.75rem 2rem;
+                background: white;
+                color: #f5576c;
+                text-decoration: none;
+                border-radius: 8px;
+                font-weight: 600;
+              }
+            </style>
+            <script>
+              // Try to open app immediately
+              window.location.href = "${deepLinkUrl}";
+              
+              // Fallback: If app doesn't open, show message
+              setTimeout(function() {
+                document.getElementById('message').innerHTML = 
+                  '<p>If the app doesn\'t open automatically, <a href="${deepLinkUrl}" class="button">Click here</a></p>';
+              }, 1000);
+            </script>
+          </head>
+          <body>
+            <div class="container">
+              <div class="error-icon">✗</div>
+              <h1>Payment Failed</h1>
+              <p>Redirecting to app...</p>
+              <div id="message"></div>
+            </div>
+          </body>
+        </html>
+      `);
     }
   } catch (error: any) {
     next(error);
